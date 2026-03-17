@@ -1,18 +1,18 @@
 # PC Audio Hub
 
-> 面向 `ESP32-S3` 麦克风节点的 UDP 接收、滚动音频缓存、HTTP 查询接口与本地 `Qwen3-ASR` worker。
+> 面向 `ESP32-S3` 麦克风节点的 UDP 接收、按节点滚动音频缓存、音频片段提取，以及本地 `Qwen3-ASR` 异步任务。
 
 English version: [README.md](README.md)
 
 ## Hub 做什么
 
-Hub 是 PC 侧的运行时，它把实时 PCM 流转成可查询的短时记忆：
+Hub 是 PC 侧的运行时，它把实时 PCM 流转成可查询的短时音频记忆：
 
 - 接收一个或多个节点的 UDP 音频包
 - 通过 `node_uuid` 追踪节点
-- 为每个节点维护滚动 ring buffer
+- 为每个节点维护滚动 Ring Buffer
 - 按时间窗导出 WAV clip
-- 对提取出的音频调用本地 ASR
+- 针对提取出的音频片段提交异步 STT 任务
 
 ## 🌊 运行拓扑
 
@@ -22,8 +22,9 @@ flowchart LR
   recv --> reg["registry.py"]
   recv --> ring["ring_buffer.py"]
   ring --> ext["extractor.py"]
-  ext --> api["hub/api.py"]
-  api --> worker["worker/api.py"]
+  api["hub/api.py"] --> ext
+  api --> jobs["jobs.py"]
+  jobs --> worker["worker/api.py"]
   worker --> asr["Qwen3-ASR"]
 ```
 
@@ -32,13 +33,13 @@ flowchart LR
 | 能力 | 状态 |
 | --- | --- |
 | UDP 接收 | 已实现 |
-| 按节点 ring buffer | 已实现 |
+| 按节点 Ring Buffer | 已实现 |
 | `/nodes` API | 已实现 |
 | `/query/audio` API | 已实现 |
 | 异步 `/query/stt` job API | 已实现 |
 | `/jobs/<job_id>` API | 已实现 |
 | 本地 ASR worker | 已实现 |
-| 视频支持 | 未实现 |
+| 视频 / 视觉链路集成 | 未实现 |
 
 ## 目录结构
 
@@ -62,13 +63,7 @@ python3 -m pip install -e .
 python3 -m pip install -e '.[test]'
 ```
 
-这会安装：
-
-- `pc_hub`
-- `qwen-asr`
-- `torch`
-- `transformers`
-- `soundfile`
+这会安装可编辑模式的 `pc-audio-hub` 包及其声明的依赖。
 
 ## 配置
 
@@ -96,7 +91,7 @@ python3 -m pip install -e '.[test]'
 | `PC_HUB_WORKER_PORT` | `8766` |
 | `PC_HUB_ASR_MODEL` | `Qwen/Qwen3-ASR-0.6B` |
 | `PC_HUB_ASR_LANGUAGE` | `zh` |
-| `PC_HUB_ASR_DEVICE_MAP` | Apple Silicon 上为 `mps`，否则为 `cpu` |
+| `PC_HUB_ASR_DEVICE_MAP` | Apple Silicon 上为 `mps`，Windows 上为 `auto`，其他平台为 `cpu` |
 | `PC_HUB_ASR_DTYPE` | Apple Silicon 上为 `float16`，否则为 `float32` |
 | `PC_HUB_ASR_MAX_BATCH_SIZE` | `1` |
 | `PC_HUB_ASR_MAX_NEW_TOKENS` | `512` |
@@ -112,6 +107,8 @@ export PC_HUB_ASR_MAX_BATCH_SIZE=1
 export PC_HUB_ASR_MAX_NEW_TOKENS=512
 ```
 
+在 Windows 上，`PC_HUB_ASR_DEVICE_MAP=auto` 会先尝试 `cuda`，如果 CUDA 不可用或模型初始化失败，再回退到 `cpu`。
+
 说明：
 
 - 首次运行会把模型权重下载到 `~/.cache/huggingface/hub`
@@ -124,8 +121,8 @@ export PC_HUB_ASR_MAX_NEW_TOKENS=512
 ```sh
 export PC_HUB_ASR_MODEL=Qwen/Qwen3-ASR-0.6B
 export PC_HUB_ASR_LANGUAGE=zh
-export PC_HUB_ASR_DEVICE_MAP=mps
-export PC_HUB_ASR_DTYPE=float16
+export PC_HUB_ASR_DEVICE_MAP=auto
+export PC_HUB_ASR_DTYPE=float32
 python3 -m worker.main
 ```
 
@@ -168,8 +165,9 @@ python3 -m hub.main
 Hub 会：
 
 1. 校验查询窗口
-2. 把 STT 任务放入队列
-3. 返回一个 `job_id`
+2. 先提取一个临时 WAV 音频片段
+3. 再把 STT 任务放入队列
+4. 返回一个 `job_id`
 
 ### `GET /jobs/<job_id>`
 
@@ -181,7 +179,7 @@ Hub 会：
 - `failed`
 - `expired`
 
-成功时，返回内容中会包含 clip 路径和 ASR 结果。
+成功时，返回内容中会包含 clip 路径和 ASR 结果。任务完成一段时间后会先进入 `expired`，再在额外一个 TTL 窗口后从内存中的任务表里移除。
 
 ## 测试
 
@@ -212,3 +210,5 @@ python3 -m pytest -q
 - 当前服务仍是纯音频
 - 首次 ASR 请求会更慢，因为模型加载和缓存预热占主要延迟
 - clip 文件是临时产物，会通过 TTL 自动清理
+- `/query/stt` 是异步任务模式，但音频提取本身仍发生在提交阶段
+- 查询窗口受 `PC_HUB_MAX_QUERY_SECONDS` 限制

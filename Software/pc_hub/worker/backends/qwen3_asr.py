@@ -23,6 +23,7 @@ class Qwen3AsrBackend:
     def __init__(self, config: Qwen3AsrConfig) -> None:
         self._config = config
         self._model = None
+        self._resolved_device_map: str | None = None
 
     def transcribe(self, *, job_id: str, audio_path: str) -> WorkerResponse:
         try:
@@ -54,13 +55,23 @@ class Qwen3AsrBackend:
         if self._model is None:
             from qwen_asr import Qwen3ASRModel
 
-            self._model = Qwen3ASRModel.from_pretrained(
-                self._config.model_name,
-                dtype=_resolve_dtype(self._config.dtype),
-                device_map=self._config.device_map,
-                max_inference_batch_size=self._config.max_inference_batch_size,
-                max_new_tokens=self._config.max_new_tokens,
-            )
+            last_error: Exception | None = None
+            for device_map in _candidate_device_maps(self._config.device_map):
+                try:
+                    self._model = Qwen3ASRModel.from_pretrained(
+                        self._config.model_name,
+                        dtype=_resolve_dtype(self._config.dtype),
+                        device_map=device_map,
+                        max_inference_batch_size=self._config.max_inference_batch_size,
+                        max_new_tokens=self._config.max_new_tokens,
+                    )
+                    self._resolved_device_map = device_map
+                    break
+                except Exception as exc:  # noqa: BLE001
+                    last_error = exc
+
+            if self._model is None and last_error is not None:
+                raise last_error
         return self._model
 
     def _error(self, job_id: str, audio_path: str, message: str) -> WorkerResponse:
@@ -78,6 +89,8 @@ class Qwen3AsrBackend:
 def default_device_map() -> str:
     if platform.system() == "Darwin" and platform.machine() == "arm64":
         return "mps"
+    if platform.system() == "Windows":
+        return "auto"
     return "cpu"
 
 
@@ -96,6 +109,20 @@ def _resolve_dtype(name: str) -> torch.dtype:
     if normalized == "bfloat16":
         return torch.bfloat16
     raise ValueError(f"Unsupported torch dtype: {name}")
+
+
+def _candidate_device_maps(device_map: str) -> tuple[str, ...]:
+    normalized = device_map.strip().lower()
+    if normalized != "auto":
+        return (device_map,)
+
+    if platform.system() == "Darwin" and platform.machine() == "arm64":
+        return ("mps",)
+
+    if platform.system() == "Windows" and torch.cuda.is_available():
+        return ("cuda", "cpu")
+
+    return ("cpu",)
 
 
 def _normalize_language(name: str | None) -> str | None:

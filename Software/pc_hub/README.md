@@ -1,16 +1,16 @@
 # PC Audio Hub
 
-> UDP ingest, rolling audio buffer, HTTP query interface, and local `Qwen3-ASR` worker for the `ESP32-S3` microphone nodes.
+> UDP ingest, per-node rolling audio buffer, clip extraction, and local `Qwen3-ASR` jobs for the `ESP32-S3` microphone nodes.
 
 ## What The Hub Does
 
-The hub is the PC-side runtime that turns a live PCM stream into queryable short-term memory:
+The hub is the PC-side runtime that turns a live PCM stream into queryable short-term audio memory:
 
 - receives UDP packets from one or more nodes
 - tracks nodes by `node_uuid`
 - stores a rolling per-node ring buffer
-- exports WAV clips by time range
-- runs local ASR on extracted clips
+- extracts WAV clips by time range
+- submits async STT jobs against extracted clips
 
 ## 🌊 Runtime Topology
 
@@ -20,8 +20,9 @@ flowchart LR
   recv --> reg["registry.py"]
   recv --> ring["ring_buffer.py"]
   ring --> ext["extractor.py"]
-  ext --> api["hub/api.py"]
-  api --> worker["worker/api.py"]
+  api["hub/api.py"] --> ext
+  api --> jobs["jobs.py"]
+  jobs --> worker["worker/api.py"]
   worker --> asr["Qwen3-ASR"]
 ```
 
@@ -36,7 +37,7 @@ flowchart LR
 | async `/query/stt` job API | Implemented |
 | `/jobs/<job_id>` API | Implemented |
 | Local ASR worker | Implemented |
-| Video support | Not implemented |
+| Video / vision pipeline integration | Not implemented |
 
 ## Directory Layout
 
@@ -60,13 +61,7 @@ For test tooling:
 python3 -m pip install -e '.[test]'
 ```
 
-This installs:
-
-- `pc_hub`
-- `qwen-asr`
-- `torch`
-- `transformers`
-- `soundfile`
+This installs the editable `pc-audio-hub` package and its declared dependencies.
 
 ## Configuration
 
@@ -94,7 +89,7 @@ This installs:
 | `PC_HUB_WORKER_PORT` | `8766` |
 | `PC_HUB_ASR_MODEL` | `Qwen/Qwen3-ASR-0.6B` |
 | `PC_HUB_ASR_LANGUAGE` | `zh` |
-| `PC_HUB_ASR_DEVICE_MAP` | `mps` on Apple Silicon, otherwise `cpu` |
+| `PC_HUB_ASR_DEVICE_MAP` | `mps` on Apple Silicon, `auto` on Windows, otherwise `cpu` |
 | `PC_HUB_ASR_DTYPE` | `float16` on Apple Silicon, otherwise `float32` |
 | `PC_HUB_ASR_MAX_BATCH_SIZE` | `1` |
 | `PC_HUB_ASR_MAX_NEW_TOKENS` | `512` |
@@ -110,6 +105,8 @@ export PC_HUB_ASR_MAX_BATCH_SIZE=1
 export PC_HUB_ASR_MAX_NEW_TOKENS=512
 ```
 
+On Windows, `PC_HUB_ASR_DEVICE_MAP=auto` tries `cuda` first and falls back to `cpu` if CUDA is unavailable or model initialization fails.
+
 Notes:
 
 - first run downloads weights into `~/.cache/huggingface/hub`
@@ -122,8 +119,8 @@ Notes:
 ```sh
 export PC_HUB_ASR_MODEL=Qwen/Qwen3-ASR-0.6B
 export PC_HUB_ASR_LANGUAGE=zh
-export PC_HUB_ASR_DEVICE_MAP=mps
-export PC_HUB_ASR_DTYPE=float16
+export PC_HUB_ASR_DEVICE_MAP=auto
+export PC_HUB_ASR_DTYPE=float32
 python3 -m worker.main
 ```
 
@@ -166,8 +163,9 @@ Same request shape as `/query/audio`.
 The hub:
 
 1. validates the requested audio window
-2. enqueues an STT job
-3. returns a `job_id`
+2. extracts a temporary WAV clip
+3. enqueues an STT job
+4. returns a `job_id`
 
 ### `GET /jobs/<job_id>`
 
@@ -180,6 +178,7 @@ Returns the job status:
 - `expired`
 
 When successful, the payload includes the clip path and ASR result.
+Completed jobs eventually transition to `expired`, and are later removed from the in-memory job table after an additional TTL window.
 
 ## Tests
 
@@ -210,3 +209,5 @@ This hub has already been validated in two useful ways:
 - this service is audio-only for now
 - first ASR request is slower because model load and cache warm-up dominate latency
 - clip files are temporary and are cleaned by TTL
+- `/query/stt` is asynchronous, but audio extraction itself still happens at submission time
+- query windows are bounded by `PC_HUB_MAX_QUERY_SECONDS`
