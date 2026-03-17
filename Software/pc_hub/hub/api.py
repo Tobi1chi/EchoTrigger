@@ -88,7 +88,7 @@ class HubRequestHandler(BaseHTTPRequestHandler):
             return
 
         try:
-            job = self.jobs.submit(request, node_id=node.node_id)
+            job = self.jobs.submit(request, node_id=node.node_id, audio_path=audio_response.audio_path)
         except JobQueueFullError as exc:
             self._send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": str(exc), "timebase": PC_RECEIVE_TIMEBASE})
             return

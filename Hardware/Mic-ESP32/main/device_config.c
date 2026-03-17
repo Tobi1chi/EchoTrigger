@@ -163,7 +163,7 @@ esp_err_t device_config_commit_streaming_enabled(bool enabled, device_config_act
 }
 
 esp_err_t device_config_commit_udp_target(const char *host, uint16_t port, device_config_actions_t *actions) {
-    if (host == NULL || host[0] == '\0') {
+    if (host == NULL || host[0] == '\0' || port == 0) {
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -173,9 +173,9 @@ esp_err_t device_config_commit_udp_target(const char *host, uint16_t port, devic
         return err;
     }
 
-    err = nvs_set_str(handle, "udp_host", s_config.udp_host);
+    err = nvs_set_str(handle, "udp_host", host);
     if (err == ESP_OK) {
-        err = nvs_set_u16(handle, "udp_port", s_config.udp_port);
+        err = nvs_set_u16(handle, "udp_port", port);
     }
     if (err == ESP_OK) {
         err = nvs_commit(handle);

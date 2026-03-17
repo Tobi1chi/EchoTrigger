@@ -92,6 +92,15 @@ static esp_err_t enqueue_command(const control_command_t *command) {
     return xQueueSendToBack(s_command_queue, command, 0) == pdTRUE ? ESP_OK : ESP_ERR_NO_MEM;
 }
 
+static bool enqueue_command_or_log(const control_command_t *command, const char *source) {
+    esp_err_t err = enqueue_command(command);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to queue %s command: %s", source, esp_err_to_name(err));
+        return false;
+    }
+    return true;
+}
+
 static void apply_actions(device_config_actions_t actions) {
     if ((actions & DEVICE_CONFIG_ACTION_APPLY_STREAMING) != 0U) {
         bool enabled = device_config_get()->streaming_enabled;
@@ -192,17 +201,17 @@ static void mqtt_event_handler(void *handler_args,
             command.type = CONTROL_COMMAND_STREAMING;
             if (event->data_len == 2 && strncasecmp(event->data, "ON", 2) == 0) {
                 command.streaming_enabled = true;
-                enqueue_command(&command);
+                enqueue_command_or_log(&command, "streaming");
             } else if (event->data_len == 3 && strncasecmp(event->data, "OFF", 3) == 0) {
                 command.streaming_enabled = false;
-                enqueue_command(&command);
+                enqueue_command_or_log(&command, "streaming");
             }
             return;
         }
         make_topic(topic, sizeof(topic), "cmd/restart");
         if ((int)strlen(topic) == event->topic_len && strncmp(topic, event->topic, event->topic_len) == 0) {
             control_command_t command = {.type = CONTROL_COMMAND_RESTART};
-            enqueue_command(&command);
+            enqueue_command_or_log(&command, "restart");
             return;
         }
         make_topic(topic, sizeof(topic), "cmd/udp_target/set");
@@ -219,7 +228,7 @@ static void mqtt_event_handler(void *handler_args,
                     if (port > 0 && port <= 65535) {
                         control_command_t command = {.type = CONTROL_COMMAND_UDP_TARGET, .udp_port = (uint16_t)port};
                         strlcpy(command.udp_host, buffer, sizeof(command.udp_host));
-                        enqueue_command(&command);
+                        enqueue_command_or_log(&command, "udp_target");
                     }
                 }
             }

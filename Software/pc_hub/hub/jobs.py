@@ -40,7 +40,7 @@ class SttJobManager:
         self._storage = storage
         self._worker_url = worker_url
         self._job_ttl_seconds = job_ttl_seconds
-        self._queue: queue.Queue[tuple[str, AudioQueryRequest, str]] = queue.Queue(maxsize=max_queue_size)
+        self._queue: queue.Queue[tuple[str, AudioQueryRequest, str, str]] = queue.Queue(maxsize=max_queue_size)
         self._jobs: dict[str, SttJobStatus] = {}
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
@@ -54,7 +54,7 @@ class SttJobManager:
         self._stop_event.set()
         self._worker_thread.join(timeout=2)
 
-    def submit(self, request: AudioQueryRequest, *, node_id: str) -> SttJobStatus:
+    def submit(self, request: AudioQueryRequest, *, node_id: str, audio_path: str) -> SttJobStatus:
         self._expire_old_jobs()
         job_id = str(uuid.uuid4())
         now = time.time()
@@ -67,14 +67,16 @@ class SttJobManager:
             end_time=request.end_time,
             created_at=now,
             updated_at=now,
+            audio_path=audio_path,
         )
         with self._lock:
             self._jobs[job_id] = job
         try:
-            self._queue.put_nowait((job_id, request, node_id))
+            self._queue.put_nowait((job_id, request, node_id, audio_path))
         except queue.Full as exc:
             with self._lock:
                 self._jobs.pop(job_id, None)
+            self._storage.delete_clip(audio_path)
             raise JobQueueFullError("stt job queue is full") from exc
         return replace(job)
 
@@ -89,7 +91,7 @@ class SttJobManager:
     def _run(self) -> None:
         while not self._stop_event.is_set():
             try:
-                job_id, request, node_id = self._queue.get(timeout=1)
+                job_id, request, node_id, audio_path = self._queue.get(timeout=1)
             except queue.Empty:
                 self._storage.cleanup_expired()
                 self._expire_old_jobs()
@@ -97,19 +99,11 @@ class SttJobManager:
 
             self._set_status(job_id, status="running")
             try:
-                audio_response = self._extractor.extract_audio(
-                    node_uuid=request.node_uuid,
-                    node_id=node_id,
-                    start_time=request.start_time,
-                    end_time=request.end_time,
-                )
-                self._set_status(job_id, audio_path=audio_response.audio_path)
-
                 worker_response = _call_worker(
                     self._worker_url,
                     SttJobRequest(
                         job_id=job_id,
-                        audio_path=audio_response.audio_path,
+                        audio_path=audio_path,
                         node_uuid=request.node_uuid,
                         node_id=node_id,
                         start_time=request.start_time,
