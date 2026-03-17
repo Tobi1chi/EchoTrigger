@@ -1,6 +1,6 @@
 # PC Audio Hub
 
-> UDP ingest, per-node rolling audio buffer, clip extraction, and local `Qwen3-ASR` jobs for the `ESP32-S3` microphone nodes.
+> UDP ingest, per-node rolling audio buffer, async STT jobs, a primary MCP entrypoint for AI agents, and a legacy HTTP compatibility API for the `ESP32-S3` microphone nodes.
 
 ## What The Hub Does
 
@@ -11,6 +11,7 @@ The hub is the PC-side runtime that turns a live PCM stream into queryable short
 - stores a rolling per-node ring buffer
 - extracts WAV clips by time range
 - submits async STT jobs against extracted clips
+- exposes an MCP server as the preferred AI-facing interface
 
 ## 🌊 Runtime Topology
 
@@ -20,8 +21,10 @@ flowchart LR
   recv --> reg["registry.py"]
   recv --> ring["ring_buffer.py"]
   ring --> ext["extractor.py"]
-  api["hub/api.py"] --> ext
-  api --> jobs["jobs.py"]
+  runtime["runtime.py + services.py"] --> ext
+  runtime --> jobs["jobs.py"]
+  legacy["legacy hub/api.py"] --> runtime
+  mcp["mcp_adapter"] --> runtime
   jobs --> worker["worker/api.py"]
   worker --> asr["Qwen3-ASR"]
 ```
@@ -32,10 +35,11 @@ flowchart LR
 | --- | --- |
 | UDP ingest | Implemented |
 | Per-node ring buffer | Implemented |
-| `/nodes` API | Implemented |
-| `/query/audio` API | Implemented |
-| async `/query/stt` job API | Implemented |
-| `/jobs/<job_id>` API | Implemented |
+| HTTP MCP adapter | Implemented |
+| Legacy `/nodes` API | Implemented, deprecated |
+| Legacy `/query/audio` API | Implemented, deprecated |
+| Legacy async `/query/stt` job API | Implemented, deprecated |
+| Legacy `/jobs/<job_id>` API | Implemented, deprecated |
 | Local ASR worker | Implemented |
 | Video / vision pipeline integration | Not implemented |
 
@@ -43,7 +47,8 @@ flowchart LR
 
 | Path | Purpose |
 | --- | --- |
-| `hub/` | UDP receiver, registry, extraction, HTTP query API |
+| `hub/` | UDP receiver, registry, extraction, runtime, legacy HTTP API |
+| `mcp_adapter/` | MCP server for AI agents |
 | `worker/` | local HTTP ASR worker |
 | `shared/` | WAV writing and shared constants |
 
@@ -71,6 +76,7 @@ This installs the editable `pc-audio-hub` package and its declared dependencies.
 | --- | --- |
 | `PC_HUB_BIND_HOST` | `127.0.0.1` |
 | `PC_HUB_HTTP_PORT` | `8765` |
+| `PC_HUB_ENABLE_LEGACY_HTTP` | `0` |
 | `PC_HUB_UDP_HOST` | `0.0.0.0` |
 | `PC_HUB_UDP_PORT` | `4000` |
 | `PC_HUB_RING_MINUTES` | `10` |
@@ -80,6 +86,14 @@ This installs the editable `pc-audio-hub` package and its declared dependencies.
 | `PC_HUB_MAX_QUERY_SECONDS` | `120` |
 | `PC_HUB_STT_JOB_QUEUE_SIZE` | `16` |
 | `PC_HUB_STT_JOB_TTL_SECONDS` | `900` |
+
+### MCP
+
+| Variable | Default |
+| --- | --- |
+| `PC_HUB_MCP_BIND_HOST` | `127.0.0.1` |
+| `PC_HUB_MCP_PORT` | `8767` |
+| `PC_HUB_MCP_PATH` | `/mcp` |
 
 ### Worker
 
@@ -124,7 +138,16 @@ export PC_HUB_ASR_DTYPE=float32
 python3 -m worker.main
 ```
 
-### Start the hub
+### Start the MCP hub
+
+```sh
+export PC_HUB_MCP_BIND_HOST=127.0.0.1
+export PC_HUB_MCP_PORT=8767
+export PC_HUB_MCP_PATH=/mcp
+python3 -m mcp_adapter.main
+```
+
+### Start the legacy HTTP hub
 
 ```sh
 export PC_HUB_BIND_HOST=127.0.0.1
@@ -137,10 +160,25 @@ export PC_HUB_CLIP_TTL_SECONDS=900
 export PC_HUB_MAX_QUERY_SECONDS=120
 export PC_HUB_STT_JOB_QUEUE_SIZE=16
 export PC_HUB_STT_JOB_TTL_SECONDS=900
+export PC_HUB_ENABLE_LEGACY_HTTP=1
 python3 -m hub.main
 ```
 
-## API
+## MCP Tools
+
+The preferred AI-facing interface is the MCP server at `http://127.0.0.1:8767/mcp`.
+
+It exposes these tools:
+
+- `list_nodes`
+- `submit_stt_job`
+- `get_stt_job`
+
+All query windows use `pc_receive_time`.
+
+## Legacy HTTP API
+
+The HTTP API remains available for compatibility, debugging, and manual verification. It is now deprecated and will be removed after the MCP path is stable.
 
 ### `GET /nodes`
 
@@ -211,3 +249,4 @@ This hub has already been validated in two useful ways:
 - clip files are temporary and are cleaned by TTL
 - `/query/stt` is asynchronous, but audio extraction itself still happens at submission time
 - query windows are bounded by `PC_HUB_MAX_QUERY_SECONDS`
+- AI agents should prefer MCP over the legacy HTTP query API

@@ -5,18 +5,12 @@ import logging
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from hub.extractor import AudioExtractor
-from hub.jobs import JobNotFoundError, JobQueueFullError, SttJobManager
-from hub.models import AudioQueryRequest
-from hub.registry import NodeRegistry
+from hub.services import HubServices, InvalidQueryError, SttQueueUnavailableError, UnknownJobError, UnknownNodeError
 from shared.timebase import PC_RECEIVE_TIMEBASE
 
 
 class HubRequestHandler(BaseHTTPRequestHandler):
-    extractor: AudioExtractor
-    registry: NodeRegistry
-    jobs: SttJobManager
-    max_query_seconds: int
+    services: HubServices
     logger = logging.getLogger("pc_hub.api")
 
     def do_GET(self) -> None:  # noqa: N802
@@ -26,7 +20,7 @@ class HubRequestHandler(BaseHTTPRequestHandler):
         if self.path != "/nodes":
             self._send_json(HTTPStatus.NOT_FOUND, {"error": "not found"})
             return
-        nodes = [node.to_dict() for node in self.registry.list_nodes()]
+        nodes = [node.to_dict() for node in self.services.list_nodes()]
         self._send_json(HTTPStatus.OK, {"timebase": PC_RECEIVE_TIMEBASE, "nodes": nodes})
 
     def do_POST(self) -> None:  # noqa: N802
@@ -42,22 +36,25 @@ class HubRequestHandler(BaseHTTPRequestHandler):
         self.logger.info("%s - %s", self.client_address[0], format % args)
 
     def _handle_audio_query(self) -> None:
-        request = self._parse_query_request()
-        if request is None:
+        body = self._read_json()
+        if body is None:
             return
-
-        node = self.registry.get(request.node_uuid)
-        if node is None:
-            self._send_json(HTTPStatus.NOT_FOUND, {"error": "unknown node_uuid"})
+        if not self._validate_query_body(body):
             return
 
         try:
-            response = self.extractor.extract_audio(
-                node_uuid=request.node_uuid,
-                node_id=node.node_id,
-                start_time=request.start_time,
-                end_time=request.end_time,
+            response = self.services.query_audio(
+                node_uuid=body.get("node_uuid", ""),
+                start_time=body.get("start_time"),
+                end_time=body.get("end_time"),
+                modality=str(body.get("modality", "audio")),
             )
+        except UnknownNodeError as exc:
+            self._send_json(HTTPStatus.NOT_FOUND, {"error": str(exc)})
+            return
+        except InvalidQueryError as exc:
+            self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+            return
         except ValueError as exc:
             self._send_json(HTTPStatus.NOT_FOUND, {"error": str(exc), "timebase": PC_RECEIVE_TIMEBASE})
             return
@@ -67,30 +64,30 @@ class HubRequestHandler(BaseHTTPRequestHandler):
         self._send_json(HTTPStatus.OK, payload)
 
     def _handle_stt_query(self) -> None:
-        request = self._parse_query_request()
-        if request is None:
+        body = self._read_json()
+        if body is None:
             return
-
-        node = self.registry.get(request.node_uuid)
-        if node is None:
-            self._send_json(HTTPStatus.NOT_FOUND, {"error": "unknown node_uuid"})
+        if not self._validate_query_body(body):
             return
 
         try:
-            audio_response = self.extractor.extract_audio(
-                node_uuid=request.node_uuid,
-                node_id=node.node_id,
-                start_time=request.start_time,
-                end_time=request.end_time,
+            job = self.services.submit_stt_query(
+                node_uuid=body.get("node_uuid", ""),
+                start_time=body.get("start_time"),
+                end_time=body.get("end_time"),
+                modality=str(body.get("modality", "audio")),
             )
+        except UnknownNodeError as exc:
+            self._send_json(HTTPStatus.NOT_FOUND, {"error": str(exc)})
+            return
+        except InvalidQueryError as exc:
+            self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+            return
+        except SttQueueUnavailableError as exc:
+            self._send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": str(exc), "timebase": PC_RECEIVE_TIMEBASE})
+            return
         except ValueError as exc:
             self._send_json(HTTPStatus.NOT_FOUND, {"error": str(exc), "timebase": PC_RECEIVE_TIMEBASE})
-            return
-
-        try:
-            job = self.jobs.submit(request, node_id=node.node_id, audio_path=audio_response.audio_path)
-        except JobQueueFullError as exc:
-            self._send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": str(exc), "timebase": PC_RECEIVE_TIMEBASE})
             return
 
         payload = {
@@ -106,49 +103,13 @@ class HubRequestHandler(BaseHTTPRequestHandler):
             return
 
         try:
-            job = self.jobs.get(job_id)
-        except JobNotFoundError:
+            job = self.services.get_stt_job(job_id)
+        except UnknownJobError:
             self._send_json(HTTPStatus.NOT_FOUND, {"error": "unknown job_id", "timebase": PC_RECEIVE_TIMEBASE})
             return
         payload = job.to_dict()
         payload["timebase"] = PC_RECEIVE_TIMEBASE
         self._send_json(HTTPStatus.OK, payload)
-
-    def _parse_query_request(self) -> AudioQueryRequest | None:
-        body = self._read_json()
-        if body is None:
-            return None
-
-        required = ("node_uuid", "start_time", "end_time")
-        missing = [key for key in required if key not in body]
-        if missing:
-            self._send_json(HTTPStatus.BAD_REQUEST, {"error": f"missing fields: {', '.join(missing)}"})
-            return None
-
-        try:
-            request = AudioQueryRequest(
-                node_uuid=str(body["node_uuid"]),
-                start_time=float(body["start_time"]),
-                end_time=float(body["end_time"]),
-                modality=str(body.get("modality", "audio")),
-            )
-        except (TypeError, ValueError):
-            self._send_json(HTTPStatus.BAD_REQUEST, {"error": "invalid query values"})
-            return None
-
-        if request.end_time <= request.start_time:
-            self._send_json(HTTPStatus.BAD_REQUEST, {"error": "end_time must be greater than start_time"})
-            return None
-        if request.end_time - request.start_time > self.max_query_seconds:
-            self._send_json(
-                HTTPStatus.BAD_REQUEST,
-                {"error": f"query window exceeds {self.max_query_seconds} seconds"},
-            )
-            return None
-        if request.modality != "audio":
-            self._send_json(HTTPStatus.BAD_REQUEST, {"error": "only audio modality is supported"})
-            return None
-        return request
 
     def _read_json(self) -> dict[str, object] | None:
         try:
@@ -163,9 +124,18 @@ class HubRequestHandler(BaseHTTPRequestHandler):
             self._send_json(HTTPStatus.BAD_REQUEST, {"error": "invalid json"})
             return None
 
+    def _validate_query_body(self, body: dict[str, object]) -> bool:
+        required = ("node_uuid", "start_time", "end_time")
+        missing = [key for key in required if key not in body]
+        if missing:
+            self._send_json(HTTPStatus.BAD_REQUEST, {"error": f"missing fields: {', '.join(missing)}"})
+            return False
+        return True
+
     def _send_json(self, status: HTTPStatus, payload: dict[str, object]) -> None:
         encoded = json.dumps(payload).encode("utf-8")
         self.send_response(status)
+        self.send_header("X-PC-Hub-Legacy-API", "deprecated")
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(encoded)))
         self.end_headers()
@@ -176,19 +146,11 @@ def build_server(
     host: str,
     port: int,
     *,
-    extractor: AudioExtractor,
-    registry: NodeRegistry,
-    jobs: SttJobManager,
-    max_query_seconds: int,
+    services: HubServices,
 ) -> ThreadingHTTPServer:
     handler = type(
         "ConfiguredHubHandler",
         (HubRequestHandler,),
-        {
-            "extractor": extractor,
-            "registry": registry,
-            "jobs": jobs,
-            "max_query_seconds": max_query_seconds,
-        },
+        {"services": services},
     )
     return ThreadingHTTPServer((host, port), handler)

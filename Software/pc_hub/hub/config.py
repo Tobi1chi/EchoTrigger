@@ -9,6 +9,7 @@ from pathlib import Path
 class HubConfig:
     bind_host: str
     http_port: int
+    legacy_http_enabled: bool
     udp_host: str
     udp_port: int
     ring_minutes: int
@@ -18,6 +19,9 @@ class HubConfig:
     max_query_seconds: int
     stt_job_queue_size: int
     stt_job_ttl_seconds: int
+    mcp_bind_host: str
+    mcp_port: int
+    mcp_path: str
 
 
 def load_config() -> HubConfig:
@@ -26,6 +30,7 @@ def load_config() -> HubConfig:
     return HubConfig(
         bind_host=os.getenv("PC_HUB_BIND_HOST", "127.0.0.1"),
         http_port=int(os.getenv("PC_HUB_HTTP_PORT", "8765")),
+        legacy_http_enabled=os.getenv("PC_HUB_ENABLE_LEGACY_HTTP", "0").strip().lower() in {"1", "true", "yes", "on"},
         udp_host=os.getenv("PC_HUB_UDP_HOST", "0.0.0.0"),
         udp_port=int(os.getenv("PC_HUB_UDP_PORT", "4000")),
         ring_minutes=int(os.getenv("PC_HUB_RING_MINUTES", "10")),
@@ -35,4 +40,7 @@ def load_config() -> HubConfig:
         max_query_seconds=int(os.getenv("PC_HUB_MAX_QUERY_SECONDS", "120")),
         stt_job_queue_size=int(os.getenv("PC_HUB_STT_JOB_QUEUE_SIZE", "16")),
         stt_job_ttl_seconds=int(os.getenv("PC_HUB_STT_JOB_TTL_SECONDS", "900")),
+        mcp_bind_host=os.getenv("PC_HUB_MCP_BIND_HOST", "127.0.0.1"),
+        mcp_port=int(os.getenv("PC_HUB_MCP_PORT", "8767")),
+        mcp_path=os.getenv("PC_HUB_MCP_PATH", "/mcp"),
     )
