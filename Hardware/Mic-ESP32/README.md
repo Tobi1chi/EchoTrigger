@@ -31,11 +31,12 @@ flowchart LR
 | --- | --- |
 | I2S capture | Implemented |
 | UDP audio uplink | Implemented |
-| MQTT commands | Implemented |
-| MQTT telemetry | Implemented |
+| MQTT commands (`streaming`, `restart`, `udp_target`) | Implemented |
+| MQTT telemetry and health snapshot | Implemented |
 | NVS-backed config | Implemented |
-| First-boot web setup portal | Implemented |
-| On-device long-term audio storage | Not implemented |
+| First-boot AP setup portal | Implemented |
+| Local-network reconfiguration page in STA mode | Implemented |
+| Video uplink for YOLO-style vision pipelines | Not implemented |
 
 ## Source Layout
 
@@ -48,6 +49,7 @@ flowchart LR
 | `main/mqtt_control.*` | MQTT command handling and telemetry |
 | `main/device_config.*` | default configuration and NVS persistence |
 | `main/health_monitor.*` | runtime counters and status snapshot |
+| `main/setup_portal.*` | AP/STA configuration portal and status page |
 
 ## Setup Modes
 
@@ -98,14 +100,15 @@ Fill in:
 
 This file is optional. If it is not present, the firmware uses built-in empty defaults and expects provisioning through the setup portal.
 
-### 2. Update device defaults
+### 2. Verify device defaults
 
-Edit [`main/device_config.c`](main/device_config.c) and set:
+Review [`main/device_config.c`](main/device_config.c) for:
 
-- `udp_host`
-- `udp_port`
-- `node_id`
 - I2S GPIO mapping
+- `streaming_enabled`
+- `telemetry_interval_ms`
+
+Network, MQTT, UDP, and `node_id` defaults come from `device_secrets.h` or are entered through the setup portal.
 
 ### 3. Verify wiring
 
@@ -159,19 +162,34 @@ That means you can:
 Current limitations:
 
 - no `mDNS` hostname is exposed yet
-- no authentication is added yet beyond local network access
+- no extra authentication is added beyond local network access
 
 ## Build
 
 ```sh
-idf.py set-target esp32s3
-idf.py build
+bash -lc '
+export IDF_PATH=$HOME/.espressif/v5.5.3/esp-idf
+export IDF_TOOLS_PATH=$HOME/.espressif/tools
+export IDF_PYTHON_ENV_PATH=$HOME/.espressif/tools/python/v5.5.3/venv
+export ESP_ROM_ELF_DIR=$HOME/.espressif/tools/esp-rom-elfs/20241011
+export PATH=$HOME/.espressif/tools/python/v5.5.3/venv/bin:$HOME/.espressif/tools/cmake/3.30.2/CMake.app/Contents/bin:$HOME/.espressif/tools/ninja/1.12.1:$HOME/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20251107/xtensa-esp-elf/bin:$HOME/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20251107/xtensa-esp-elf/xtensa-esp-elf/bin:$HOME/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20251107/riscv32-esp-elf/bin:$HOME/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20251107/riscv32-esp-elf/riscv32-esp-elf/bin:$PATH
+cd /Users/tobiichieigetsu/Workspace/AI/Microphone/Hardware/Mic-ESP32
+$HOME/.espressif/tools/python/v5.5.3/venv/bin/python $IDF_PATH/tools/idf.py build
+'
 ```
 
 ## Flash
 
 ```sh
-idf.py -p <SERIAL_PORT> flash monitor
+bash -lc '
+export IDF_PATH=$HOME/.espressif/v5.5.3/esp-idf
+export IDF_TOOLS_PATH=$HOME/.espressif/tools
+export IDF_PYTHON_ENV_PATH=$HOME/.espressif/tools/python/v5.5.3/venv
+export ESP_ROM_ELF_DIR=$HOME/.espressif/tools/esp-rom-elfs/20241011
+export PATH=$HOME/.espressif/tools/python/v5.5.3/venv/bin:$HOME/.espressif/tools/cmake/3.30.2/CMake.app/Contents/bin:$HOME/.espressif/tools/ninja/1.12.1:$HOME/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20251107/xtensa-esp-elf/bin:$HOME/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20251107/xtensa-esp-elf/xtensa-esp-elf/bin:$HOME/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20251107/riscv32-esp-elf/bin:$HOME/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20251107/riscv32-esp-elf/riscv32-esp-elf/bin:$PATH
+cd /Users/tobiichieigetsu/Workspace/AI/Microphone/Hardware/Mic-ESP32
+$HOME/.espressif/tools/python/v5.5.3/venv/bin/python $IDF_PATH/tools/idf.py -p <SERIAL_PORT> flash monitor
+'
 ```
 
 ## Audio Uplink Format
@@ -205,6 +223,15 @@ The packet format is defined in [`main/audio_protocol.h`](main/audio_protocol.h)
 - `mic/<node_uuid>/status/packets_dropped`
 - `mic/<node_uuid>/status/udp_target`
 
+The local setup page in STA mode also shows a live status snapshot:
+
+- current IP address
+- Wi-Fi state and RSSI
+- MQTT connectivity
+- UDP readiness
+- uptime
+- packets sent / dropped
+
 ### Commands
 
 - `mic/<node_uuid>/cmd/streaming/set`
@@ -214,6 +241,7 @@ The packet format is defined in [`main/audio_protocol.h`](main/audio_protocol.h)
 ## Notes
 
 - audio goes over UDP, not MQTT
-- the node does not store long-duration audio locally
+- the node is intentionally audio-uplink only and does not target local long-duration audio archival
 - the PC hub is responsible for rolling buffer retention
+- `node_uuid` is derived from the STA MAC at boot and is stable across reflashes
 - a node with missing Wi-Fi / MQTT / UDP config automatically enters setup portal mode
