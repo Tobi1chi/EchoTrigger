@@ -1,0 +1,13 @@
+[project]
+name = "pc-audio-hub"
+version = "0.1.0"
+description = "PC audio hub and STT worker for ESP32-S3 microphone nodes"
+requires-python = ">=3.12"
+dependencies = ["qwen-asr>=0.0.6", "soundfile>=0.13.1"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["hub*", "shared*", "worker*"]

@@ -1,0 +1,20 @@
+CompileFlags:
+  CompilationDatabase: Hardware/Mic-ESP32/build
+  Remove:
+    - -mlongcalls
+    - -fstrict-volatile-bitfields
+    - -fno-tree-switch-conversion
+    - -fno-jump-tables
+    - -fno-shrink-wrap
+    - -fmacro-prefix-map=*
+    - -fno-builtin-memcpy
+    - -fno-builtin-memset
+    - -fno-builtin-bzero
+    - -fno-builtin-stpcpy
+    - -fno-builtin-strncpy
+
+Diagnostics:
+  UnusedIncludes: Strict
+
+Index:
+  Background: Build

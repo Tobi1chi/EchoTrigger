@@ -1,0 +1,14 @@
+.DS_Store
+
+# Local editor state
+.vscode/*.log
+/local
+# Python caches outside subprojects
+__pycache__/
+*.pyc
+
+# Temporary audio exports and ad-hoc artifacts
+*.wav
+*.pcm
+*.tmp
+

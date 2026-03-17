@@ -1,0 +1,22 @@
+idf_component_register(
+    SRCS
+        "main.c"
+        "audio_capture.c"
+        "audio_packetizer.c"
+        "device_config.c"
+        "health_monitor.c"
+        "mqtt_control.c"
+        "udp_streamer.c"
+    INCLUDE_DIRS "."
+    REQUIRES
+        esp_driver_gpio
+        esp_driver_i2s
+        esp_event
+        esp_netif
+        esp_timer
+        esp_wifi
+        log
+        lwip
+        mqtt
+        nvs_flash
+)
