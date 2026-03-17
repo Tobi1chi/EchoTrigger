@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
+from typing import Iterable
 
 
 class ClipStorage:
@@ -41,10 +42,13 @@ class ClipStorage:
             except OSError:
                 continue
 
-    def cleanup_expired(self) -> int:
+    def cleanup_expired(self, *, protected_paths: Iterable[str | Path] = ()) -> int:
         cutoff = time.time() - self._ttl_seconds
+        protected = {str(Path(path)) for path in protected_paths}
         deleted = 0
         for wav_path in self._clip_dir.rglob("*.wav"):
+            if str(wav_path) in protected:
+                continue
             try:
                 if wav_path.stat().st_mtime >= cutoff:
                     continue

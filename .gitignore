@@ -6,6 +6,7 @@ AGENTS.md
 # Local editor state
 .vscode/*.log
 /local
+.vscode
 
 # Python caches outside subprojects
 __pycache__/

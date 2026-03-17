@@ -93,7 +93,7 @@ class SttJobManager:
             try:
                 job_id, request, node_id, audio_path = self._queue.get(timeout=1)
             except queue.Empty:
-                self._storage.cleanup_expired()
+                self._storage.cleanup_expired(protected_paths=self._protected_audio_paths())
                 self._expire_old_jobs()
                 continue
 
@@ -124,7 +124,7 @@ class SttJobManager:
                 self._set_status(job_id, status="failed", error=str(exc))
             finally:
                 self._queue.task_done()
-                self._storage.cleanup_expired()
+                self._storage.cleanup_expired(protected_paths=self._protected_audio_paths())
                 self._expire_old_jobs()
 
     def _set_status(self, job_id: str, **changes: object) -> None:
@@ -140,23 +140,37 @@ class SttJobManager:
 
     def _expire_old_jobs(self) -> None:
         now = time.time()
+        jobs_to_remove: list[str] = []
         with self._lock:
-            for job in self._jobs.values():
+            for job_id, job in self._jobs.items():
                 if job.status in {"queued", "running"}:
+                    continue
+                if job.status == "expired":
+                    if now - job.updated_at >= self._job_ttl_seconds:
+                        jobs_to_remove.append(job_id)
                     continue
                 if now - job.updated_at < self._job_ttl_seconds:
                     continue
-                if job.status != "expired":
-                    if job.audio_path:
-                        self._storage.delete_clip(job.audio_path)
-                        job.audio_path = None
-                    job.status = "expired"
-                    job.text = ""
-                    job.segments = []
-                    job.language = None
-                    job.duration_seconds = None
-                    job.error = "job result expired"
-                    job.updated_at = now
+                if job.audio_path:
+                    self._storage.delete_clip(job.audio_path)
+                    job.audio_path = None
+                job.status = "expired"
+                job.text = ""
+                job.segments = []
+                job.language = None
+                job.duration_seconds = None
+                job.error = "job result expired"
+                job.updated_at = now
+            for job_id in jobs_to_remove:
+                self._jobs.pop(job_id, None)
+
+    def _protected_audio_paths(self) -> list[str]:
+        with self._lock:
+            return [
+                job.audio_path
+                for job in self._jobs.values()
+                if job.audio_path is not None and job.status in {"queued", "running", "succeeded", "failed"}
+            ]
 
 
 def _segment_from_dict(item: object):
