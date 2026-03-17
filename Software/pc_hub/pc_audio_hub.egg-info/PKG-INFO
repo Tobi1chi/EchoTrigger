@@ -1,7 +1,0 @@
-Metadata-Version: 2.4
-Name: pc-audio-hub
-Version: 0.1.0
-Summary: PC audio hub and STT worker for ESP32-S3 microphone nodes
-Requires-Python: >=3.12
-Requires-Dist: qwen-asr>=0.0.6
-Requires-Dist: soundfile>=0.13.1

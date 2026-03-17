@@ -2,3 +2,4 @@ build/
 sdkconfig
 sdkconfig.old
 main/device_secrets.h
+.cache/
