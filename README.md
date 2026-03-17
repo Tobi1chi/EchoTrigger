@@ -68,9 +68,10 @@ flowchart LR
   mic["I2S Microphone"] --> esp["ESP32-S3 Node"]
   esp -->|"20 ms UDP PCM packets"| hub["PC Audio Hub"]
   hub --> ring["Per-node Ring Buffer"]
-  ring --> audio["/query/audio"]
-  ring --> stt["/query/stt (enqueue)"]
-  stt --> jobs["/jobs/<job_id>"]
+  ring --> runtime["Hub Runtime"]
+  runtime --> legacy["Legacy HTTP API"]
+  runtime --> mcp["MCP Adapter"]
+  runtime --> jobs["Async STT Jobs"]
   jobs --> asr["Qwen3-ASR Worker"]
 ```
 
@@ -108,7 +109,7 @@ Deploy the hub in [`Software/pc_hub`](Software/pc_hub):
 - install the Python package
 - start the `Qwen3-ASR` worker
 - start the UDP hub
-- query recent audio or transcription through HTTP
+- query recent audio or transcription through MCP
 
 See the hub-specific guide:
 
@@ -222,8 +223,8 @@ This repository has already been validated with a simulated `ESP32` uplink:
 - split into `20 ms` PCM packets
 - uploaded over UDP using the current firmware packet format
 - hub registered the simulated node
-- `/query/audio` succeeded
-- async `/query/stt` job flow succeeded
+- legacy `/query/audio` succeeded
+- legacy async `/query/stt` job flow succeeded
 
 That proved the chain:
 
@@ -234,6 +235,7 @@ audio file -> simulated UDP packets -> pc_hub -> ring buffer -> WAV extraction -
 ## Notes & Limits
 
 - query timebase is `PC receive time`, not the embedded timestamp
+- the AI-facing entrypoint is now MCP; the legacy HTTP query API remains for compatibility
 - the worker currently returns a single transcription string, not aligned word timings
 - `Qwen3-ASR-0.6B` is better than the previous Whisper-based local setup for Chinese tests, but still not perfect
 - the project is audio-first right now; video ingestion and YOLO-style vision analysis are future work

@@ -68,9 +68,10 @@ flowchart LR
   mic["I2S 麦克风"] --> esp["ESP32-S3 节点"]
   esp -->|"20 ms UDP PCM 包"| hub["PC Audio Hub"]
   hub --> ring["按节点 Ring Buffer"]
-  ring --> audio["/query/audio"]
-  ring --> stt["/query/stt（入队）"]
-  stt --> jobs["/jobs/<job_id>"]
+  ring --> runtime["Hub Runtime"]
+  runtime --> legacy["Legacy HTTP API"]
+  runtime --> mcp["MCP Adapter"]
+  runtime --> jobs["异步 STT Jobs"]
   jobs --> asr["Qwen3-ASR Worker"]
 ```
 
@@ -108,7 +109,7 @@ AGENTS.md
 - 安装 Python 包
 - 启动 `Qwen3-ASR` worker
 - 启动 UDP hub
-- 通过 HTTP 查询音频和转写任务
+- 通过 MCP 查询音频和转写任务
 
 详细说明见：
 
@@ -221,7 +222,7 @@ curl http://127.0.0.1:8765/jobs/<job_id>
 - 源音频转成 WAV 后切成 `20 ms` PCM 包
 - 按固件协议格式通过 UDP 发送
 - hub 正确注册了模拟节点
-- `/query/audio` 和异步 `/query/stt` 均正常工作
+- legacy `/query/audio` 和异步 `/query/stt` 均正常工作
 
 验证过的完整链路：
 
@@ -232,6 +233,7 @@ curl http://127.0.0.1:8765/jobs/<job_id>
 ## 注意事项与已知限制
 
 - 查询使用的时间轴是 `PC receive time`（PC 收到数据包的时间），而不是固件包头里的设备时间戳
+- 面向 AI 的主入口现在是 MCP；legacy HTTP 查询 API 仅保留作兼容用途
 - Worker 目前只返回整段转写文本，还不支持逐词时间对齐
 - `Qwen3-ASR-0.6B` 中文效果比之前的 Whisper 方案好不少，但离完美还有距离
 - 目前只做了音频，视频接入和 YOLO 之类的视觉分析是后面的事

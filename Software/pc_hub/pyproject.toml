@@ -3,7 +3,11 @@ name = "pc-audio-hub"
 version = "0.1.0"
 description = "PC audio hub and STT worker for ESP32-S3 microphone nodes"
 requires-python = ">=3.12"
-dependencies = ["qwen-asr>=0.0.6", "soundfile>=0.13.1"]
+dependencies = ["mcp>=1.26.0", "qwen-asr>=0.0.6", "soundfile>=0.13.1"]
+
+[project.scripts]
+pc-hub = "hub.main:main"
+pc-hub-mcp = "mcp_adapter.main:main"
 
 [project.optional-dependencies]
 test = ["pytest>=8.0"]
@@ -13,7 +17,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["hub*", "shared*", "worker*"]
+include = ["hub*", "mcp_adapter*", "shared*", "worker*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
