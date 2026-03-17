@@ -1,6 +1,6 @@
 # 事件触发音频回放代理
 
-> 一个本地优先的音频感知系统，围绕 `ESP32-S3`、UDP 音频上行、短时回放，以及 PC 侧事件触发 ASR 构建。
+> 基于 `ESP32-S3` 的本地优先音频感知系统 —— 持续采集、UDP 上行、短时回放，在 PC 侧按需触发语音识别。
 
 English version: [README.md](README.md)
 
@@ -35,21 +35,21 @@ flowchart LR
   class ha,mqtt control;
 ```
 
-## Overview
+## 项目概览
 
-这个仓库目前由两部分可部署系统组成：
+项目分为两个独立部署的部分：
 
 - [`Hardware/Mic-ESP32`](Hardware/Mic-ESP32)：`ESP32-S3` 麦克风节点固件
-- [`Software/pc_hub`](Software/pc_hub)：PC 侧 UDP hub、ring buffer 和本地 ASR worker
+- [`Software/pc_hub`](Software/pc_hub)：PC 侧 UDP Hub、Ring Buffer 和本地 ASR Worker
 
-当前系统能力：
+目前已经实现的能力：
 
-- 从 `ESP32-S3` 采集麦克风音频
-- 通过 UDP 持续上传 `16 kHz / 16-bit / mono PCM`
-- 在 PC 上缓存最近一段时间音频
-- 按时间范围提取音频窗口
-- 使用 `Qwen3-ASR-0.6B` 做本地语音识别
-- 设备端支持首次网页初始化配置
+- 通过 `ESP32-S3` 持续采集麦克风音频
+- 以 `16 kHz / 16-bit / mono PCM` 格式通过 UDP 实时上传
+- 在 PC 上滚动缓存最近一段时间的音频
+- 支持按时间范围提取音频片段
+- 使用 `Qwen3-ASR-0.6B` 在本地完成语音识别
+- 首次上电时通过网页完成设备配置
 
 ## 一览
 
@@ -89,13 +89,13 @@ AGENTS.md
 
 ### 1. 硬件节点
 
-部署 [`Hardware/Mic-ESP32`](Hardware/Mic-ESP32) 中的固件：
+把 [`Hardware/Mic-ESP32`](Hardware/Mic-ESP32) 的固件烧到板子上：
 
-- 烧录预编译固件，或使用 `ESP-IDF` 自行构建
-- 首次启动如果还未配置，连接设备的 setup AP
-- 打开 `http://192.168.4.1/`
-- 填写 Wi‑Fi、MQTT、UDP 和 `node_id`
-- 重启进入正常工作模式
+- 直接烧录预编译固件，或用 `ESP-IDF` 自己编译
+- 第一次开机如果还没配置过，设备会自动开启一个 setup AP
+- 浏览器打开 `http://192.168.4.1/`
+- 填好 Wi‑Fi、MQTT、UDP 和 `node_id`
+- 保存后重启，进入正常工作模式
 
 详细说明见：
 
@@ -114,7 +114,7 @@ AGENTS.md
 
 - [`Software/pc_hub/README.md`](Software/pc_hub/README.md)
 
-## Quick Start
+## 快速开始
 
 ### 构建并烧录 ESP32-S3
 
@@ -125,22 +125,22 @@ idf.py build
 idf.py -p <SERIAL_PORT> flash monitor
 ```
 
-### 首次设备初始化
+### 首次设备配置
 
-如果节点没有有效运行配置，它会启动配置门户：
+节点还没配过的话，上电后会自动进入配置模式：
 
-- 连接 `MicSetup-<last6>`
-- 密码使用 `mic-setup`
-- 打开 [http://192.168.4.1](http://192.168.4.1)
-- 保存 Wi‑Fi、MQTT、UDP 和 `node_id`
+- 手机或电脑连上 Wi-Fi `MicSetup-<last6>`
+- 密码是 `mic-setup`
+- 浏览器打开 [http://192.168.4.1](http://192.168.4.1)
+- 填好 Wi‑Fi、MQTT、UDP 和 `node_id` 后保存
 
-### 重配置已部署设备
+### 修改已部署设备的配置
 
-当节点已经通过 `STA` 模式连接到路由器后，它也会在局域网 IP 上暴露同一个轻量配置页面：
+节点连上你的路由器之后，也可以直接通过局域网 IP 访问同一个配置页面：
 
-- 从路由器或 DHCP 租约里找到设备 IP
-- 打开 `http://<device-ip>/`
-- 修改配置并重启
+- 在路由器管理页或 DHCP 列表里找到设备 IP
+- 浏览器打开 `http://<device-ip>/`
+- 改完配置后保存重启即可
 
 ### 安装 PC Hub
 
@@ -149,7 +149,7 @@ cd Software/pc_hub
 python3 -m pip install -e .
 ```
 
-### 启动 ASR worker
+### 启动 ASR Worker
 
 ```sh
 cd Software/pc_hub
@@ -175,7 +175,7 @@ python3 -m hub.main
 
 ## ✅ 验证
 
-### Worker 烟测
+### Worker 冒烟测试
 
 ```sh
 curl -X POST http://127.0.0.1:8766/transcribe \
@@ -214,29 +214,27 @@ curl -X POST http://127.0.0.1:8765/query/stt \
 curl http://127.0.0.1:8765/jobs/<job_id>
 ```
 
-## 🧪 模拟上行验证状态
+## 🧪 模拟上行验证
 
-这个仓库已经用模拟 `ESP32` 上行做过验证：
+整条链路已经通过模拟 `ESP32` 上行跑通过：
 
-- 把源音频转成 WAV
-- 切成 `20 ms` PCM 音频包
-- 按当前固件协议通过 UDP 上传
-- hub 能注册模拟节点
-- `/query/audio` 成功
-- 异步 `/query/stt` job 流程成功
+- 源音频转成 WAV 后切成 `20 ms` PCM 包
+- 按固件协议格式通过 UDP 发送
+- hub 正确注册了模拟节点
+- `/query/audio` 和异步 `/query/stt` 均正常工作
 
-这说明链路已打通：
+验证过的完整链路：
 
 ```text
 音频文件 -> 模拟 UDP 包 -> pc_hub -> ring buffer -> WAV 提取 -> Qwen3-ASR -> 文本
 ```
 
-## 注意事项与限制
+## 注意事项与已知限制
 
-- 查询时间轴是 `PC receive time`，不是固件包头里的嵌入式时间戳
-- worker 当前返回单段转写文本，不提供逐词对齐时间
-- `Qwen3-ASR-0.6B` 对中文比此前的 Whisper 路线更好，但仍然不是完美识别
-- 当前项目仍然是音频优先，视频接入和 YOLO 风格视觉分析属于后续扩展
+- 查询使用的时间轴是 `PC receive time`（PC 收到数据包的时间），而不是固件包头里的设备时间戳
+- Worker 目前只返回整段转写文本，还不支持逐词时间对齐
+- `Qwen3-ASR-0.6B` 中文效果比之前的 Whisper 方案好不少，但离完美还有距离
+- 目前只做了音频，视频接入和 YOLO 之类的视觉分析是后面的事
 
 ## 相关文件
 
@@ -247,4 +245,4 @@ curl http://127.0.0.1:8765/jobs/<job_id>
 
 ---
 
-<p align="center">⭐ 为本地优先、事件触发式音频回放而构建。</p>
+<p align="center">⭐ 本地优先，按需回放，听该听的。</p>

@@ -56,6 +56,12 @@ flowchart LR
 python3 -m pip install -e .
 ```
 
+如果要安装测试工具：
+
+```sh
+python3 -m pip install -e '.[test]'
+```
+
 这会安装：
 
 - `pc_hub`
@@ -176,6 +182,14 @@ Hub 会：
 - `expired`
 
 成功时，返回内容中会包含 clip 路径和 ASR 结果。
+
+## 测试
+
+运行 PC Hub 测试：
+
+```sh
+python3 -m pytest -q
+```
 
 ## 时间基准
 

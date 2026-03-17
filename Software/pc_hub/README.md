@@ -54,6 +54,12 @@ From this directory:
 python3 -m pip install -e .
 ```
 
+For test tooling:
+
+```sh
+python3 -m pip install -e '.[test]'
+```
+
 This installs:
 
 - `pc_hub`
@@ -174,6 +180,14 @@ Returns the job status:
 - `expired`
 
 When successful, the payload includes the clip path and ASR result.
+
+## Tests
+
+Run the PC hub tests with:
+
+```sh
+python3 -m pytest -q
+```
 
 ## Timebase
 

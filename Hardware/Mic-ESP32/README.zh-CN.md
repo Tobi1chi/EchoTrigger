@@ -6,14 +6,14 @@ English version: [README.md](README.md)
 
 ## 这个节点做什么
 
-这份固件会把 `ESP32-S3` 变成一个轻量音频上行节点：
+这份固件会把 `ESP32-S3` 变成一个轻量的音频上行节点：
 
 - 从 `INMP441` 采集 `I2S` 音频
 - 将音频按 `16 kHz / 16-bit / mono PCM` 分帧
-- 通过 UDP 把音频发到 PC hub
+- 通过 UDP 把音频发送到 PC Hub
 - 通过 MQTT 暴露遥测和控制能力
 - 使用 `NVS` 保存少量运行配置
-- 在 `AP` 模式下提供首次网页初始化门户
+- 在 `AP` 模式下提供首次网页配置门户
 
 ## 🔧 固件流程
 
@@ -46,25 +46,25 @@ flowchart LR
 | `main/main.c` | 启动、Wi‑Fi、任务编排 |
 | `main/audio_capture.*` | I2S 采集与队列投递 |
 | `main/audio_packetizer.*` | 包头与 PCM 分帧 |
-| `main/udp_streamer.*` | UDP socket 发送 |
+| `main/udp_streamer.*` | UDP Socket 发送 |
 | `main/mqtt_control.*` | MQTT 命令处理与遥测 |
-| `main/device_config.*` | 默认配置与 NVS 持久化 |
+| `main/device_config.*` | 默认配置与 NVS 持久化管理 |
 | `main/health_monitor.*` | 运行计数器与状态快照 |
 
 ## 配置模式
 
-这份固件现在支持两种部署路径。
+这份固件目前支持两种部署路径。
 
 ### 1. 普通用户路径
 
 - 烧录预编译固件
 - 设备上电
-- 如果节点尚未配置，会自动启动 setup Wi‑Fi AP
+- 如果节点尚未配置，会自动启动用于初始化的 Wi‑Fi AP
 - 打开 `http://192.168.4.1/`
 - 填写 Wi‑Fi、MQTT、UDP 和 `node_id`
 - 保存并重启
 
-节点加入正常 Wi‑Fi 后，还会在 `STA` 模式下继续暴露一个轻量配置页，方便后续重配置。
+节点连入正常 Wi‑Fi 后，还会在 `STA` 模式下继续提供一个轻量配置页，方便后续重新配置。
 
 ### 2. 开发者路径
 
@@ -72,7 +72,7 @@ flowchart LR
 - 使用 `ESP-IDF` 构建
 - 本地烧录和调试
 
-如果没有编译期 secrets，固件仍然可以启动，并自动回退到 setup portal。
+如果没有提供编译期 secrets，固件仍然可以启动，并自动回退到 setup portal。
 
 ## 构建前准备
 
@@ -98,7 +98,7 @@ flowchart LR
 - `DEVICE_SECRET_UDP_PORT`
 - `DEVICE_SECRET_NODE_ID`
 
-这个文件是可选的。如果不存在，固件会使用内置空默认值，并期待通过 setup portal 完成初始化。
+这个文件是可选的。如果不存在，固件会使用内置的空默认值，并等待通过 setup portal 完成初始化。
 
 ### 2. 更新设备默认值
 
@@ -151,7 +151,7 @@ mic-setup
 
 当节点已经配置完成并连接到路由器后，它会在本地局域网 IP 上继续提供相同的配置表单。
 
-也就是说你可以：
+也就是说，你可以：
 
 - 在路由器或 DHCP 租约里找到节点 IP
 - 打开 `http://<device-ip>/`
@@ -161,7 +161,7 @@ mic-setup
 当前限制：
 
 - 暂时没有 `mDNS` 主机名
-- 暂时没有额外认证，只依赖局域网访问边界
+- 暂时没有额外认证机制，只依赖局域网访问边界
 
 ## 构建
 
@@ -217,5 +217,5 @@ idf.py -p <SERIAL_PORT> flash monitor
 
 - 音频走 UDP，不走 MQTT
 - 节点本地不保存长时间音频
-- PC hub 负责滚动缓存保留
+- PC Hub 负责滚动缓存保留
 - 缺少 Wi‑Fi / MQTT / UDP 配置的节点会自动进入 setup portal 模式

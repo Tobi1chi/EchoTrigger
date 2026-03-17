@@ -4,11 +4,11 @@ English version: [AGENTS.md](AGENTS.md)
 
 ## 仓库说明
 
-- 当前正在使用的嵌入式固件工程位于 `Hardware/Mic-ESP32`
-- PC 侧音频 hub 工程位于 `Software/pc_hub`
+- 当前使用的嵌入式固件工程位于 `Hardware/Mic-ESP32`
+- PC 侧音频 Hub 工程位于 `Software/pc_hub`
 - 固件目标平台是 `ESP32-S3`，框架是 `ESP-IDF`，不是 Arduino
 - 这台本机已经通过 `eim-cli` 安装了 `ESP-IDF v5.5.3`
-- 设备身份拆成两层：
+- 设备身份分成两层：
   - `node_uuid`：由 ESP32-S3 的 STA MAC 派生，用作稳定 MQTT / 后端主键
   - `node_id`：来自本地 secrets / config 的可读显示名
 
@@ -55,7 +55,7 @@ $HOME/.espressif/tools/python/v5.5.3/venv/bin/python $IDF_PATH/tools/idf.py set-
 
 - 在沙箱环境下，ESP-IDF 的 configure/build 在 macOS 上可能因为 `psutil` 访问 `sysctl` 权限边界而失败。如果出现这种情况，需要在非沙箱环境重新执行
 - 必须设置 `ESP_ROM_ELF_DIR`，否则构建过程中会出现 `gen_gdbinit.py` 警告
-- 这个环境下仅靠 `export.sh` 暴露出来的 `idf.py` 路径不够，因为 `eim-cli` 把 Python venv 安装到了 `~/.espressif/tools/python/v5.5.3/venv`
+- 在这个环境里，仅靠 `export.sh` 暴露出来的 `idf.py` 路径还不够，因为 `eim-cli` 把 Python venv 安装到了 `~/.espressif/tools/python/v5.5.3/venv`
 
 ## 构建产物
 
@@ -89,9 +89,9 @@ $HOME/.espressif/tools/python/v5.5.3/venv/bin/python $IDF_PATH/tools/idf.py set-
   - `GET /jobs/<job_id>`
 - Worker API：
   - `POST /transcribe`
-- 查询时间轴使用 `PC receive time`，不是 ESP32 的设备时间戳
-- worker 现在直接使用 `Qwen3-ASR`；之前的 Whisper 路线已经移除
-- 主要 worker 配置：
+- 查询使用的时间轴是 `PC receive time`，不是 ESP32 的设备时间戳
+- Worker 现在直接使用 `Qwen3-ASR`；之前的 Whisper 路线已经移除
+- 主要的 Worker 配置：
   - `PC_HUB_ASR_MODEL`
   - `PC_HUB_ASR_LANGUAGE`
   - `PC_HUB_ASR_DEVICE_MAP`
