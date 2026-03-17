@@ -2,6 +2,8 @@
 
 > A local-first audio sensing stack built around `ESP32-S3`, UDP audio uplink, short-horizon replay, and on-device-triggered ASR on the PC side.
 
+中文说明见：[README.zh-CN.md](README.zh-CN.md)
+
 ![ESP32-S3](https://img.shields.io/static/v1?label=MCU&message=ESP32-S3&color=1f6feb)
 ![Framework](https://img.shields.io/static/v1?label=Firmware&message=ESP-IDF&color=222222)
 ![ASR](https://img.shields.io/static/v1?label=ASR&message=Qwen3%20ASR%200.6B&color=0a7f5a)
