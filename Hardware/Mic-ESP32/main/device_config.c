@@ -10,7 +10,11 @@
 #include "nvs.h"
 #include "nvs_flash.h"
 
+#if __has_include("device_secrets.h")
 #include "device_secrets.h"
+#else
+#include "device_secrets_defaults.h"
+#endif
 
 static const char *TAG = "device_config";
 
@@ -30,6 +34,7 @@ static device_config_t s_config = {
     .i2s_din_pin = GPIO_NUM_6,
     .streaming_enabled = true,
     .telemetry_interval_ms = 10000,
+    .is_configured = false,
 };
 
 static void load_string(nvs_handle_t handle, const char *key, char *buffer, size_t buffer_len) {
@@ -57,6 +62,28 @@ static esp_err_t derive_node_uuid(char *buffer, size_t buffer_len) {
                            mac[4],
                            mac[5]);
     return (written > 0 && (size_t)written < buffer_len) ? ESP_OK : ESP_ERR_INVALID_SIZE;
+}
+
+static bool has_required_setup_fields(const device_config_t *config) {
+    return config->wifi_ssid[0] != '\0' &&
+           config->mqtt_host[0] != '\0' &&
+           config->udp_host[0] != '\0' &&
+           config->node_id[0] != '\0' &&
+           config->mqtt_port != 0 &&
+           config->udp_port != 0;
+}
+
+static esp_err_t save_string(nvs_handle_t handle, const char *key, const char *value) {
+    if (value == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    return nvs_set_str(handle, key, value);
+}
+
+static void assign_actions(device_config_actions_t *actions, device_config_actions_t value) {
+    if (actions != NULL) {
+        *actions = value;
+    }
 }
 
 esp_err_t device_config_init(void) {
@@ -102,6 +129,7 @@ esp_err_t device_config_init(void) {
     }
 
     nvs_close(handle);
+    s_config.is_configured = has_required_setup_fields(&s_config);
     return ESP_OK;
 }
 
@@ -109,9 +137,11 @@ const device_config_t *device_config_get(void) {
     return &s_config;
 }
 
-esp_err_t device_config_set_streaming_enabled(bool enabled) {
-    s_config.streaming_enabled = enabled;
+bool device_config_is_configured(void) {
+    return s_config.is_configured;
+}
 
+esp_err_t device_config_commit_streaming_enabled(bool enabled, device_config_actions_t *actions) {
     nvs_handle_t handle;
     esp_err_t err = nvs_open(DEVICE_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
     if (err != ESP_OK) {
@@ -123,16 +153,19 @@ esp_err_t device_config_set_streaming_enabled(bool enabled) {
         err = nvs_commit(handle);
     }
     nvs_close(handle);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    s_config.streaming_enabled = enabled;
+    assign_actions(actions, DEVICE_CONFIG_ACTION_APPLY_STREAMING);
     return err;
 }
 
-esp_err_t device_config_set_udp_target(const char *host, uint16_t port) {
+esp_err_t device_config_commit_udp_target(const char *host, uint16_t port, device_config_actions_t *actions) {
     if (host == NULL || host[0] == '\0') {
         return ESP_ERR_INVALID_ARG;
     }
-
-    snprintf(s_config.udp_host, sizeof(s_config.udp_host), "%s", host);
-    s_config.udp_port = port;
 
     nvs_handle_t handle;
     esp_err_t err = nvs_open(DEVICE_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
@@ -148,5 +181,83 @@ esp_err_t device_config_set_udp_target(const char *host, uint16_t port) {
         err = nvs_commit(handle);
     }
     nvs_close(handle);
-    return err;
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    snprintf(s_config.udp_host, sizeof(s_config.udp_host), "%s", host);
+    s_config.udp_port = port;
+    assign_actions(actions, DEVICE_CONFIG_ACTION_APPLY_UDP_TARGET);
+    return ESP_OK;
+}
+
+esp_err_t device_config_commit_setup(const device_setup_config_t *setup, device_config_actions_t *actions) {
+    if (setup == NULL ||
+        setup->wifi_ssid[0] == '\0' ||
+        setup->mqtt_host[0] == '\0' ||
+        setup->udp_host[0] == '\0' ||
+        setup->node_id[0] == '\0' ||
+        setup->mqtt_port == 0 ||
+        setup->udp_port == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open(DEVICE_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    err = save_string(handle, "wifi_ssid", setup->wifi_ssid);
+    if (err == ESP_OK) {
+        err = save_string(handle, "wifi_pass", setup->wifi_password);
+    }
+    if (err == ESP_OK) {
+        err = save_string(handle, "mqtt_host", setup->mqtt_host);
+    }
+    if (err == ESP_OK) {
+        err = nvs_set_u16(handle, "mqtt_port", setup->mqtt_port);
+    }
+    if (err == ESP_OK) {
+        err = save_string(handle, "mqtt_user", setup->mqtt_username);
+    }
+    if (err == ESP_OK) {
+        err = save_string(handle, "mqtt_pass", setup->mqtt_password);
+    }
+    if (err == ESP_OK) {
+        err = save_string(handle, "udp_host", setup->udp_host);
+    }
+    if (err == ESP_OK) {
+        err = nvs_set_u16(handle, "udp_port", setup->udp_port);
+    }
+    if (err == ESP_OK) {
+        err = save_string(handle, "node_id", setup->node_id);
+    }
+    if (err == ESP_OK) {
+        err = nvs_commit(handle);
+    }
+    nvs_close(handle);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    strlcpy(s_config.wifi_ssid, setup->wifi_ssid, sizeof(s_config.wifi_ssid));
+    strlcpy(s_config.wifi_password, setup->wifi_password, sizeof(s_config.wifi_password));
+    strlcpy(s_config.mqtt_host, setup->mqtt_host, sizeof(s_config.mqtt_host));
+    s_config.mqtt_port = setup->mqtt_port;
+    strlcpy(s_config.mqtt_username, setup->mqtt_username, sizeof(s_config.mqtt_username));
+    strlcpy(s_config.mqtt_password, setup->mqtt_password, sizeof(s_config.mqtt_password));
+    strlcpy(s_config.udp_host, setup->udp_host, sizeof(s_config.udp_host));
+    s_config.udp_port = setup->udp_port;
+    strlcpy(s_config.node_id, setup->node_id, sizeof(s_config.node_id));
+    s_config.is_configured = true;
+
+    ESP_LOGI(TAG, "Saved provisioning for node_id=%s udp=%s:%u mqtt=%s:%u",
+             s_config.node_id,
+             s_config.udp_host,
+             s_config.udp_port,
+             s_config.mqtt_host,
+             s_config.mqtt_port);
+    assign_actions(actions, DEVICE_CONFIG_ACTION_RESTART_REQUIRED);
+    return ESP_OK;
 }

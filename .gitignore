@@ -1,8 +1,10 @@
 .DS_Store
+.nexus-map/
 
 # Local editor state
 .vscode/*.log
 /local
+.nexux-map/raw/
 # Python caches outside subprojects
 __pycache__/
 *.pyc
@@ -11,4 +13,3 @@ __pycache__/
 *.wav
 *.pcm
 *.tmp
-

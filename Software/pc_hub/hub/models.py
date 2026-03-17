@@ -95,3 +95,26 @@ class SttJobResponse:
         data = asdict(self)
         data["segments"] = [segment.to_dict() for segment in self.segments]
         return data
+
+
+@dataclass(slots=True)
+class SttJobStatus:
+    job_id: str
+    status: str
+    node_uuid: str
+    node_id: str
+    start_time: float
+    end_time: float
+    created_at: float
+    updated_at: float
+    audio_path: str | None = None
+    text: str = ""
+    segments: list[SttSegment] = field(default_factory=list)
+    language: str | None = None
+    duration_seconds: float | None = None
+    error: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        data = asdict(self)
+        data["segments"] = [segment.to_dict() for segment in self.segments]
+        return data

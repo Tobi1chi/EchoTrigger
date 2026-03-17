@@ -25,16 +25,28 @@ class AudioExtractor:
         if not chunks:
             raise ValueError("no audio found in requested window")
 
-        pcm_bytes = b"".join(chunk.samples for chunk in chunks)
+        total_bytes = sum(len(chunk.samples) for chunk in chunks)
+        pcm_buffer = bytearray(total_bytes)
+        offset = 0
+        for chunk in chunks:
+            next_offset = offset + len(chunk.samples)
+            pcm_buffer[offset:next_offset] = chunk.samples
+            offset = next_offset
         first = chunks[0]
         duration = sum(chunk.duration_seconds for chunk in chunks)
         clip_path = self._storage.build_clip_path(node_uuid, start_time, end_time)
         write_pcm_wav(
             clip_path,
-            pcm_bytes,
+            bytes(pcm_buffer),
             channels=first.channels,
             sample_width_bytes=max(first.bits_per_sample // 8, 1),
             sample_rate=first.sample_rate,
+        )
+        self._storage.write_metadata(
+            clip_path,
+            node_uuid=node_uuid,
+            start_time=start_time,
+            end_time=end_time,
         )
         return AudioQueryResponse(
             node_uuid=node_uuid,

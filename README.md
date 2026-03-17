@@ -17,7 +17,8 @@ flowchart LR
   esp -->|"UDP PCM stream"| hub["PC Audio Hub"]
   hub --> ring["Rolling Ring Buffer"]
   ring --> extract["Time-Range Extraction"]
-  extract --> asr["Qwen3-ASR"]
+  extract --> jobs["Async STT Jobs"]
+  jobs --> asr["Qwen3-ASR"]
   asr --> result["Text / Event Meaning"]
 
   ha["Home Assistant / External Trigger"] -->|"timestamp query"| hub
@@ -46,6 +47,7 @@ Today, the system does this:
 - buffers recent audio on the PC
 - extracts windows by time range
 - runs local ASR with `Qwen3-ASR-0.6B`
+- supports first-boot web provisioning on the device side
 
 ## At A Glance
 
@@ -65,8 +67,9 @@ flowchart LR
   esp -->|"20 ms UDP PCM packets"| hub["PC Audio Hub"]
   hub --> ring["Per-node Ring Buffer"]
   ring --> audio["/query/audio"]
-  ring --> stt["/query/stt"]
-  stt --> asr["Qwen3-ASR Worker"]
+  ring --> stt["/query/stt (enqueue)"]
+  stt --> jobs["/jobs/<job_id>"]
+  jobs --> asr["Qwen3-ASR Worker"]
 ```
 
 ## Repository Layout
@@ -86,10 +89,11 @@ AGENTS.md
 
 Deploy the firmware in [`Hardware/Mic-ESP32`](Hardware/Mic-ESP32):
 
-- configure Wi-Fi and MQTT secrets
-- configure UDP target and I2S pins
-- build with `ESP-IDF`
-- flash to the `ESP32-S3`
+- flash a prebuilt firmware or build with `ESP-IDF`
+- on first boot, connect to the node setup AP if it is not yet configured
+- open `http://192.168.4.1/`
+- fill Wi-Fi, MQTT, UDP, and `node_id`
+- reboot into normal streaming mode
 
 See the hardware-specific guide:
 
@@ -118,6 +122,23 @@ idf.py set-target esp32s3
 idf.py build
 idf.py -p <SERIAL_PORT> flash monitor
 ```
+
+### First-boot device setup
+
+If the node has no valid runtime configuration, it starts a setup portal:
+
+- connect to `MicSetup-<last6>`
+- use password `mic-setup`
+- open [http://192.168.4.1](http://192.168.4.1)
+- save Wi-Fi, MQTT, UDP, and `node_id`
+
+### Reconfigure a deployed device
+
+Once the node is already connected to your router in `STA` mode, it also exposes the same lightweight configuration page on its local IP:
+
+- find the device IP in your router or DHCP leases
+- open `http://<device-ip>/`
+- update settings and reboot
 
 ### Install the PC hub
 
@@ -185,6 +206,12 @@ curl -X POST http://127.0.0.1:8765/query/stt \
   }'
 ```
 
+Then poll the returned job:
+
+```sh
+curl http://127.0.0.1:8765/jobs/<job_id>
+```
+
 ## 🧪 Simulated Uplink Status
 
 This repository has already been validated with a simulated `ESP32` uplink:
@@ -194,7 +221,7 @@ This repository has already been validated with a simulated `ESP32` uplink:
 - uploaded over UDP using the current firmware packet format
 - hub registered the simulated node
 - `/query/audio` succeeded
-- `/query/stt` succeeded
+- async `/query/stt` job flow succeeded
 
 That proved the chain:
 

@@ -13,6 +13,7 @@
 #include "esp_log.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
 #include "freertos/task.h"
 #include "health_monitor.h"
 #include "mqtt_client.h"
@@ -24,6 +25,22 @@ static bool s_network_ready;
 static bool s_mqtt_started;
 static char s_broker_uri[128];
 static char s_availability_topic[96];
+static QueueHandle_t s_command_queue;
+static StaticTask_t s_control_task_buffer;
+static StackType_t s_control_task_stack[4096];
+
+typedef enum {
+    CONTROL_COMMAND_STREAMING = 0,
+    CONTROL_COMMAND_RESTART = 1,
+    CONTROL_COMMAND_UDP_TARGET = 2,
+} control_command_type_t;
+
+typedef struct {
+    control_command_type_t type;
+    bool streaming_enabled;
+    char udp_host[DEVICE_CONFIG_HOST_MAX_LEN];
+    uint16_t udp_port;
+} control_command_t;
 
 static void make_topic(char *buffer, size_t buffer_len, const char *suffix) {
     snprintf(buffer, buffer_len, "mic/%s/%s", device_config_get()->node_uuid, suffix);
@@ -68,49 +85,68 @@ static void publish_snapshot(void) {
     publish_udp_target();
 }
 
-static void handle_streaming_command(const char *payload, size_t len) {
-    if (len == 2 && strncasecmp(payload, "ON", 2) == 0) {
-        device_config_set_streaming_enabled(true);
-        audio_capture_set_streaming_enabled(true);
-        health_monitor_set_streaming_enabled(true);
-        publish_text("status/streaming", "ON", 1, true);
-        return;
+static esp_err_t enqueue_command(const control_command_t *command) {
+    if (s_command_queue == NULL) {
+        return ESP_ERR_INVALID_STATE;
     }
-    if (len == 3 && strncasecmp(payload, "OFF", 3) == 0) {
-        device_config_set_streaming_enabled(false);
-        audio_capture_set_streaming_enabled(false);
-        health_monitor_set_streaming_enabled(false);
-        publish_text("status/streaming", "OFF", 1, true);
+    return xQueueSendToBack(s_command_queue, command, 0) == pdTRUE ? ESP_OK : ESP_ERR_NO_MEM;
+}
+
+static void apply_actions(device_config_actions_t actions) {
+    if ((actions & DEVICE_CONFIG_ACTION_APPLY_STREAMING) != 0U) {
+        bool enabled = device_config_get()->streaming_enabled;
+        audio_capture_set_streaming_enabled(enabled);
+        health_monitor_set_streaming_enabled(enabled);
+        publish_text("status/streaming", enabled ? "ON" : "OFF", 1, true);
+    }
+
+    if ((actions & DEVICE_CONFIG_ACTION_APPLY_UDP_TARGET) != 0U) {
+        if (udp_streamer_reconfigure_target() == ESP_OK) {
+            publish_udp_target();
+        } else {
+            ESP_LOGE(TAG, "Failed to apply UDP target reconfiguration");
+        }
+    }
+
+    if ((actions & DEVICE_CONFIG_ACTION_RESTART_REQUIRED) != 0U) {
+        publish_text("status/availability", "offline", 1, true);
+        vTaskDelay(pdMS_TO_TICKS(200));
+        esp_restart();
     }
 }
 
-static void handle_restart_command(void) {
-    publish_text("status/availability", "offline", 1, true);
-    vTaskDelay(pdMS_TO_TICKS(200));
-    esp_restart();
-}
+static void control_task(void *arg) {
+    (void)arg;
 
-static void handle_udp_target_command(const char *payload, size_t len) {
-    char buffer[96];
-    if (len >= sizeof(buffer)) {
-        return;
-    }
-    memcpy(buffer, payload, len);
-    buffer[len] = '\0';
+    control_command_t command;
+    while (true) {
+        if (xQueueReceive(s_command_queue, &command, portMAX_DELAY) != pdTRUE) {
+            continue;
+        }
 
-    char *colon = strrchr(buffer, ':');
-    if (colon == NULL) {
-        return;
-    }
-    *colon = '\0';
-    long port = strtol(colon + 1, NULL, 10);
-    if (port <= 0 || port > 65535) {
-        return;
-    }
+        device_config_actions_t actions = DEVICE_CONFIG_ACTION_NONE;
+        esp_err_t err = ESP_OK;
+        switch (command.type) {
+        case CONTROL_COMMAND_STREAMING:
+            err = device_config_commit_streaming_enabled(command.streaming_enabled, &actions);
+            break;
+        case CONTROL_COMMAND_UDP_TARGET:
+            err = device_config_commit_udp_target(command.udp_host, command.udp_port, &actions);
+            break;
+        case CONTROL_COMMAND_RESTART:
+            actions = DEVICE_CONFIG_ACTION_RESTART_REQUIRED;
+            break;
+        default:
+            err = ESP_ERR_INVALID_ARG;
+            break;
+        }
 
-    if (device_config_set_udp_target(buffer, (uint16_t)port) == ESP_OK &&
-        udp_streamer_reconfigure_target() == ESP_OK) {
-        publish_udp_target();
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Control command %d failed: %s", (int)command.type, esp_err_to_name(err));
+            continue;
+        }
+
+        apply_actions(actions);
     }
 }
 
@@ -152,17 +188,41 @@ static void mqtt_event_handler(void *handler_args,
     case MQTT_EVENT_DATA:
         make_topic(topic, sizeof(topic), "cmd/streaming/set");
         if ((int)strlen(topic) == event->topic_len && strncmp(topic, event->topic, event->topic_len) == 0) {
-            handle_streaming_command(event->data, (size_t)event->data_len);
+            control_command_t command = {0};
+            command.type = CONTROL_COMMAND_STREAMING;
+            if (event->data_len == 2 && strncasecmp(event->data, "ON", 2) == 0) {
+                command.streaming_enabled = true;
+                enqueue_command(&command);
+            } else if (event->data_len == 3 && strncasecmp(event->data, "OFF", 3) == 0) {
+                command.streaming_enabled = false;
+                enqueue_command(&command);
+            }
             return;
         }
         make_topic(topic, sizeof(topic), "cmd/restart");
         if ((int)strlen(topic) == event->topic_len && strncmp(topic, event->topic, event->topic_len) == 0) {
-            handle_restart_command();
+            control_command_t command = {.type = CONTROL_COMMAND_RESTART};
+            enqueue_command(&command);
             return;
         }
         make_topic(topic, sizeof(topic), "cmd/udp_target/set");
         if ((int)strlen(topic) == event->topic_len && strncmp(topic, event->topic, event->topic_len) == 0) {
-            handle_udp_target_command(event->data, (size_t)event->data_len);
+            char buffer[96];
+            if (event->data_len > 0 && event->data_len < (int)sizeof(buffer)) {
+                memcpy(buffer, event->data, (size_t)event->data_len);
+                buffer[event->data_len] = '\0';
+
+                char *colon = strrchr(buffer, ':');
+                if (colon != NULL) {
+                    *colon = '\0';
+                    long port = strtol(colon + 1, NULL, 10);
+                    if (port > 0 && port <= 65535) {
+                        control_command_t command = {.type = CONTROL_COMMAND_UDP_TARGET, .udp_port = (uint16_t)port};
+                        strlcpy(command.udp_host, buffer, sizeof(command.udp_host));
+                        enqueue_command(&command);
+                    }
+                }
+            }
         }
         break;
     default:
@@ -175,6 +235,21 @@ esp_err_t mqtt_control_init(void) {
 
     snprintf(s_broker_uri, sizeof(s_broker_uri), "mqtt://%s:%u", config->mqtt_host, config->mqtt_port);
     make_topic(s_availability_topic, sizeof(s_availability_topic), "status/availability");
+    s_command_queue = xQueueCreate(8, sizeof(control_command_t));
+    if (s_command_queue == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+    TaskHandle_t control_handle = xTaskCreateStaticPinnedToCore(control_task,
+                                                                "mqtt_control_task",
+                                                                sizeof(s_control_task_stack) / sizeof(StackType_t),
+                                                                NULL,
+                                                                5,
+                                                                s_control_task_stack,
+                                                                &s_control_task_buffer,
+                                                                tskNO_AFFINITY);
+    if (control_handle == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
 
     esp_mqtt_client_config_t mqtt_cfg = {
         .broker.address.uri = s_broker_uri,

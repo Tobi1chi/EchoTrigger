@@ -33,7 +33,8 @@ flowchart LR
 | Per-node ring buffer | Implemented |
 | `/nodes` API | Implemented |
 | `/query/audio` API | Implemented |
-| `/query/stt` API | Implemented |
+| async `/query/stt` job API | Implemented |
+| `/jobs/<job_id>` API | Implemented |
 | Local ASR worker | Implemented |
 | Video support | Not implemented |
 
@@ -74,6 +75,10 @@ This installs:
 | `PC_HUB_RING_MINUTES` | `10` |
 | `PC_HUB_CLIP_DIR` | `Software/pc_hub/runtime/clips` |
 | `PC_HUB_WORKER_URL` | `http://127.0.0.1:8766/transcribe` |
+| `PC_HUB_CLIP_TTL_SECONDS` | `900` |
+| `PC_HUB_MAX_QUERY_SECONDS` | `120` |
+| `PC_HUB_STT_JOB_QUEUE_SIZE` | `16` |
+| `PC_HUB_STT_JOB_TTL_SECONDS` | `900` |
 
 ### Worker
 
@@ -125,6 +130,10 @@ export PC_HUB_UDP_HOST=0.0.0.0
 export PC_HUB_UDP_PORT=4000
 export PC_HUB_RING_MINUTES=10
 export PC_HUB_WORKER_URL=http://127.0.0.1:8766/transcribe
+export PC_HUB_CLIP_TTL_SECONDS=900
+export PC_HUB_MAX_QUERY_SECONDS=120
+export PC_HUB_STT_JOB_QUEUE_SIZE=16
+export PC_HUB_STT_JOB_TTL_SECONDS=900
 python3 -m hub.main
 ```
 
@@ -150,10 +159,21 @@ Same request shape as `/query/audio`.
 
 The hub:
 
-1. extracts the requested audio window
-2. writes a WAV clip
-3. calls the worker
-4. returns the transcription result
+1. validates the requested audio window
+2. enqueues an STT job
+3. returns a `job_id`
+
+### `GET /jobs/<job_id>`
+
+Returns the job status:
+
+- `queued`
+- `running`
+- `succeeded`
+- `failed`
+- `expired`
+
+When successful, the payload includes the clip path and ASR result.
 
 ## Timebase
 
@@ -168,10 +188,11 @@ It is not the embedded packet timestamp.
 This hub has already been validated in two useful ways:
 
 - direct worker transcription against local WAV input
-- full end-to-end simulated ESP32 UDP upload, followed by `/query/stt`
+- full end-to-end simulated ESP32 UDP upload, followed by async STT job execution
 
 ## Notes & Limits
 
 - `segments` are currently empty for `Qwen3-ASR`
 - this service is audio-only for now
 - first ASR request is slower because model load and cache warm-up dominate latency
+- clip files are temporary and are cleaned by TTL

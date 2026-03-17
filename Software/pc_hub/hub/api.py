@@ -2,14 +2,12 @@ from __future__ import annotations
 
 import json
 import logging
-import urllib.error
-import urllib.request
-import uuid
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from hub.extractor import AudioExtractor
-from hub.models import AudioQueryRequest, SttJobRequest
+from hub.jobs import JobNotFoundError, JobQueueFullError, SttJobManager
+from hub.models import AudioQueryRequest
 from hub.registry import NodeRegistry
 from shared.timebase import PC_RECEIVE_TIMEBASE
 
@@ -17,10 +15,14 @@ from shared.timebase import PC_RECEIVE_TIMEBASE
 class HubRequestHandler(BaseHTTPRequestHandler):
     extractor: AudioExtractor
     registry: NodeRegistry
-    worker_url: str
+    jobs: SttJobManager
+    max_query_seconds: int
     logger = logging.getLogger("pc_hub.api")
 
     def do_GET(self) -> None:  # noqa: N802
+        if self.path.startswith("/jobs/"):
+            self._handle_job_get()
+            return
         if self.path != "/nodes":
             self._send_json(HTTPStatus.NOT_FOUND, {"error": "not found"})
             return
@@ -85,27 +87,31 @@ class HubRequestHandler(BaseHTTPRequestHandler):
             self._send_json(HTTPStatus.NOT_FOUND, {"error": str(exc), "timebase": PC_RECEIVE_TIMEBASE})
             return
 
-        stt_request = SttJobRequest(
-            job_id=str(uuid.uuid4()),
-            audio_path=audio_response.audio_path,
-            node_uuid=request.node_uuid,
-            node_id=node.node_id,
-            start_time=request.start_time,
-            end_time=request.end_time,
-        )
         try:
-            worker_response = _call_worker(self.worker_url, stt_request)
-        except RuntimeError as exc:
-            self._send_json(HTTPStatus.BAD_GATEWAY, {"error": str(exc), "timebase": PC_RECEIVE_TIMEBASE})
+            job = self.jobs.submit(request, node_id=node.node_id)
+        except JobQueueFullError as exc:
+            self._send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": str(exc), "timebase": PC_RECEIVE_TIMEBASE})
             return
 
         payload = {
-            "node_uuid": request.node_uuid,
-            "node_id": node.node_id,
-            "audio_path": audio_response.audio_path,
             "timebase": PC_RECEIVE_TIMEBASE,
-            **worker_response,
+            **job.to_dict(),
         }
+        self._send_json(HTTPStatus.ACCEPTED, payload)
+
+    def _handle_job_get(self) -> None:
+        job_id = self.path.removeprefix("/jobs/").strip()
+        if not job_id:
+            self._send_json(HTTPStatus.BAD_REQUEST, {"error": "missing job_id"})
+            return
+
+        try:
+            job = self.jobs.get(job_id)
+        except JobNotFoundError:
+            self._send_json(HTTPStatus.NOT_FOUND, {"error": "unknown job_id", "timebase": PC_RECEIVE_TIMEBASE})
+            return
+        payload = job.to_dict()
+        payload["timebase"] = PC_RECEIVE_TIMEBASE
         self._send_json(HTTPStatus.OK, payload)
 
     def _parse_query_request(self) -> AudioQueryRequest | None:
@@ -132,6 +138,12 @@ class HubRequestHandler(BaseHTTPRequestHandler):
 
         if request.end_time <= request.start_time:
             self._send_json(HTTPStatus.BAD_REQUEST, {"error": "end_time must be greater than start_time"})
+            return None
+        if request.end_time - request.start_time > self.max_query_seconds:
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": f"query window exceeds {self.max_query_seconds} seconds"},
+            )
             return None
         if request.modality != "audio":
             self._send_json(HTTPStatus.BAD_REQUEST, {"error": "only audio modality is supported"})
@@ -166,37 +178,17 @@ def build_server(
     *,
     extractor: AudioExtractor,
     registry: NodeRegistry,
-    worker_url: str,
+    jobs: SttJobManager,
+    max_query_seconds: int,
 ) -> ThreadingHTTPServer:
     handler = type(
         "ConfiguredHubHandler",
         (HubRequestHandler,),
-        {"extractor": extractor, "registry": registry, "worker_url": worker_url},
+        {
+            "extractor": extractor,
+            "registry": registry,
+            "jobs": jobs,
+            "max_query_seconds": max_query_seconds,
+        },
     )
     return ThreadingHTTPServer((host, port), handler)
-
-
-def _call_worker(worker_url: str, request: SttJobRequest) -> dict[str, object]:
-    payload = json.dumps(
-        {
-            "job_id": request.job_id,
-            "audio_path": request.audio_path,
-            "node_uuid": request.node_uuid,
-            "node_id": request.node_id,
-            "start_time": request.start_time,
-            "end_time": request.end_time,
-            "modality": request.modality,
-        }
-    ).encode("utf-8")
-    http_request = urllib.request.Request(
-        worker_url,
-        data=payload,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(http_request, timeout=120) as response:
-            data = json.loads(response.read().decode("utf-8"))
-    except urllib.error.URLError as exc:
-        raise RuntimeError(f"worker request failed: {exc}") from exc
-    return data

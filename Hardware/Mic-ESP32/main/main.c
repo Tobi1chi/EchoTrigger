@@ -16,6 +16,7 @@
 #include "health_monitor.h"
 #include "mqtt_control.h"
 #include "nvs_flash.h"
+#include "setup_portal.h"
 #include "udp_streamer.h"
 
 static const char *TAG = "main";
@@ -28,6 +29,7 @@ static esp_event_handler_instance_t s_ip_handler_instance;
 #define WIFI_CONNECTED_BIT BIT0
 
 static QueueHandle_t s_packet_queue;
+static bool s_network_stack_initialized;
 
 static void wifi_event_handler(void *arg,
                                esp_event_base_t event_base,
@@ -63,15 +65,24 @@ static void wifi_event_handler(void *arg,
     }
 }
 
-static esp_err_t wifi_init_sta(void) {
-    const device_config_t *config = device_config_get();
-
+static esp_err_t network_stack_init(void) {
+    if (s_network_stack_initialized) {
+        return ESP_OK;
+    }
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
-    esp_netif_create_default_wifi_sta();
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+    s_network_stack_initialized = true;
+    return ESP_OK;
+}
+
+static esp_err_t wifi_init_sta(void) {
+    const device_config_t *config = device_config_get();
+
+    ESP_ERROR_CHECK(network_stack_init());
+    esp_netif_create_default_wifi_sta();
 
     ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT,
                                                         ESP_EVENT_ANY_ID,
@@ -125,13 +136,6 @@ void app_main(void) {
     health_monitor_init();
     health_monitor_set_streaming_enabled(device_config_get()->streaming_enabled);
 
-    s_network_events = xEventGroupCreate();
-    s_packet_queue = xQueueCreate(8, sizeof(audio_packet_t));
-    if (s_packet_queue == NULL) {
-        ESP_LOGE(TAG, "Failed to create packet queue");
-        abort();
-    }
-
     ESP_LOGI(TAG, "Booting node_id=%s node_uuid=%s udp=%s:%u mqtt=%s:%u",
              device_config_get()->node_id,
              device_config_get()->node_uuid,
@@ -140,7 +144,22 @@ void app_main(void) {
              device_config_get()->mqtt_host,
              device_config_get()->mqtt_port);
 
+    if (!device_config_is_configured()) {
+        ESP_LOGW(TAG, "Device is not provisioned; starting setup portal");
+        ESP_ERROR_CHECK(network_stack_init());
+        ESP_ERROR_CHECK(setup_portal_start(SETUP_PORTAL_MODE_AP));
+        return;
+    }
+
+    s_network_events = xEventGroupCreate();
+    s_packet_queue = xQueueCreate(8, sizeof(audio_packet_t));
+    if (s_packet_queue == NULL) {
+        ESP_LOGE(TAG, "Failed to create packet queue");
+        abort();
+    }
+
     ESP_ERROR_CHECK(wifi_init_sta());
+    ESP_ERROR_CHECK(setup_portal_start(SETUP_PORTAL_MODE_STA));
     ESP_ERROR_CHECK(udp_streamer_init(s_packet_queue));
     ESP_ERROR_CHECK(mqtt_control_init());
     ESP_ERROR_CHECK(audio_capture_init(s_packet_queue));
