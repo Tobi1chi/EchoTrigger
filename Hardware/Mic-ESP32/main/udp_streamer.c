@@ -137,3 +137,7 @@ void udp_streamer_set_network_ready(bool ready) {
         }
     }
 }
+
+TaskHandle_t udp_streamer_get_task_handle(void) {
+    return s_udp_task_handle;
+}

@@ -19,8 +19,13 @@
 #include "health_monitor.h"
 
 static const char *TAG = "setup_portal";
+static const size_t SETUP_PORTAL_HTML_BUFFER_SIZE = 12288;
 static httpd_handle_t s_http_server;
 static setup_portal_mode_t s_mode = SETUP_PORTAL_MODE_AP;
+
+static const char *portal_mode_name(setup_portal_mode_t mode) {
+    return mode == SETUP_PORTAL_MODE_AP ? "AP" : "STA";
+}
 
 static void build_ap_identity(char *ssid, size_t ssid_len, char *password, size_t password_len) {
     const char *node_uuid = device_config_get()->node_uuid;
@@ -220,8 +225,11 @@ static esp_err_t root_get_handler(httpd_req_t *req) {
     char status_mqtt[32];
     char status_udp[32];
     char status_uptime[32];
-    char status_packets[48];
-    char html[6144];
+    char status_packets_sent[32];
+    char status_packets_dropped[32];
+    char status_udp_errors[32];
+    char status_queue_peak[32];
+    char *html = NULL;
     health_snapshot_t snapshot = health_monitor_get_snapshot();
 
     build_ap_identity(ssid, sizeof(ssid), password, sizeof(password));
@@ -242,11 +250,10 @@ static esp_err_t root_get_handler(httpd_req_t *req) {
              sizeof(status_uptime),
              "%" PRIu32 "s",
              (uint32_t)(snapshot.uptime_ms / 1000ULL));
-    snprintf(status_packets,
-             sizeof(status_packets),
-             "%" PRIu32 " sent / %" PRIu32 " dropped",
-             snapshot.packets_sent,
-             snapshot.packets_dropped);
+    snprintf(status_packets_sent, sizeof(status_packets_sent), "%" PRIu32, snapshot.packets_sent);
+    snprintf(status_packets_dropped, sizeof(status_packets_dropped), "%" PRIu32, snapshot.packets_dropped);
+    snprintf(status_udp_errors, sizeof(status_udp_errors), "%" PRIu32, snapshot.udp_errors);
+    snprintf(status_queue_peak, sizeof(status_queue_peak), "%" PRIu32 " packets", snapshot.max_queue_fill_seen);
     if (s_mode == SETUP_PORTAL_MODE_AP) {
         strlcpy(mode_label, "ESP32-S3 Setup Portal", sizeof(mode_label));
         strlcpy(mode_description,
@@ -269,9 +276,16 @@ static esp_err_t root_get_handler(httpd_req_t *req) {
         strlcpy(footer, "Open this page from your router-assigned device IP while the node is on your local network.", sizeof(footer));
     }
 
+    html = calloc(1, SETUP_PORTAL_HTML_BUFFER_SIZE);
+    if (html == NULL) {
+        ESP_LOGE(TAG, "%s portal failed to allocate homepage buffer", portal_mode_name(s_mode));
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Out of memory");
+        return ESP_ERR_NO_MEM;
+    }
+
     int written = snprintf(
         html,
-        sizeof(html),
+        SETUP_PORTAL_HTML_BUFFER_SIZE,
         "<!doctype html><html><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width,initial-scale=1'>"
         "<title>Mic Node Setup</title>"
@@ -308,7 +322,10 @@ static esp_err_t root_get_handler(httpd_req_t *req) {
         "<div class='status-card'><strong>MQTT</strong><div>%s</div></div>"
         "<div class='status-card'><strong>UDP</strong><div>%s</div></div>"
         "<div class='status-card'><strong>Uptime</strong><div>%s</div></div>"
-        "<div class='status-card'><strong>Packets</strong><div>%s</div></div>"
+        "<div class='status-card'><strong>Packets Sent</strong><div>%s</div></div>"
+        "<div class='status-card'><strong>Packets Dropped</strong><div>%s</div></div>"
+        "<div class='status-card'><strong>UDP Errors</strong><div>%s</div></div>"
+        "<div class='status-card'><strong>Queue Peak</strong><div>%s</div></div>"
         "</div></div>"
         "<form method='post' action='/save'>"
         "<div class='section'><h2>Wi-Fi</h2><p>These values are used for the node's normal station-mode connection.</p>"
@@ -346,7 +363,10 @@ static esp_err_t root_get_handler(httpd_req_t *req) {
         status_mqtt,
         status_udp,
         status_uptime,
-        status_packets,
+        status_packets_sent,
+        status_packets_dropped,
+        status_udp_errors,
+        status_queue_peak,
         wifi_ssid,
         mqtt_host,
         device_config_get()->mqtt_port,
@@ -355,12 +375,22 @@ static esp_err_t root_get_handler(httpd_req_t *req) {
         device_config_get()->udp_port,
         node_id,
         footer);
-    if (written <= 0 || (size_t)written >= sizeof(html)) {
+    if (written <= 0 || (size_t)written >= SETUP_PORTAL_HTML_BUFFER_SIZE) {
+        ESP_LOGE(TAG, "%s portal homepage render failed or truncated (written=%d)", portal_mode_name(s_mode), written);
+        free(html);
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Portal page render failed");
         return ESP_FAIL;
     }
 
     httpd_resp_set_type(req, "text/html; charset=utf-8");
-    return httpd_resp_send(req, html, HTTPD_RESP_USE_STRLEN);
+    esp_err_t err = httpd_resp_send(req, html, HTTPD_RESP_USE_STRLEN);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "%s portal homepage send failed: %s", portal_mode_name(s_mode), esp_err_to_name(err));
+    } else {
+        ESP_LOGI(TAG, "%s portal homepage served", portal_mode_name(s_mode));
+    }
+    free(html);
+    return err;
 }
 
 static esp_err_t save_post_handler(httpd_req_t *req) {
@@ -411,9 +441,13 @@ static esp_err_t start_http_server(void) {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = 80;
     config.lru_purge_enable = true;
+    // Keep the portal conservative on lwIP socket usage so STA-mode startup
+    // does not fail on small default socket limits.
+    config.max_open_sockets = 2;
 
     esp_err_t err = httpd_start(&s_http_server, &config);
     if (err != ESP_OK) {
+        ESP_LOGE(TAG, "%s portal httpd_start failed: %s", portal_mode_name(s_mode), esp_err_to_name(err));
         return err;
     }
 
@@ -428,8 +462,22 @@ static esp_err_t start_http_server(void) {
         .handler = save_post_handler,
     };
 
-    ESP_ERROR_CHECK(httpd_register_uri_handler(s_http_server, &root));
-    ESP_ERROR_CHECK(httpd_register_uri_handler(s_http_server, &save));
+    err = httpd_register_uri_handler(s_http_server, &root);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "%s portal root handler registration failed: %s", portal_mode_name(s_mode), esp_err_to_name(err));
+        httpd_stop(s_http_server);
+        s_http_server = NULL;
+        return err;
+    }
+
+    err = httpd_register_uri_handler(s_http_server, &save);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "%s portal save handler registration failed: %s", portal_mode_name(s_mode), esp_err_to_name(err));
+        httpd_stop(s_http_server);
+        s_http_server = NULL;
+        return err;
+    }
+    ESP_LOGI(TAG, "%s portal HTTP server started on port %u", portal_mode_name(s_mode), (unsigned)config.server_port);
     return ESP_OK;
 }
 
@@ -443,7 +491,11 @@ esp_err_t setup_portal_start(setup_portal_mode_t mode) {
 
     if (mode == SETUP_PORTAL_MODE_STA) {
         ESP_LOGI(TAG, "Starting local reconfiguration portal on STA interface");
-        return start_http_server();
+        esp_err_t err = start_http_server();
+        if (err == ESP_OK) {
+            ESP_LOGI(TAG, "STA portal started on local network interface");
+        }
+        return err;
     }
 
     char ssid[48];
@@ -467,5 +519,9 @@ esp_err_t setup_portal_start(setup_portal_mode_t mode) {
     ESP_LOGW(TAG, "Setup portal active on SSID=%s password=%s", ssid, password);
     ESP_LOGW(TAG, "Open http://192.168.4.1/ to configure the device");
 
-    return start_http_server();
+    esp_err_t err = start_http_server();
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "AP portal ready on http://192.168.4.1/");
+    }
+    return err;
 }

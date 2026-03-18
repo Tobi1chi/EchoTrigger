@@ -12,6 +12,7 @@ typedef struct {
     uint32_t packets_sent;
     uint32_t packets_dropped;
     uint32_t udp_errors;
+    uint32_t max_queue_fill_seen;
     uint64_t uptime_ms;
 } health_snapshot_t;
 
@@ -21,6 +22,7 @@ void health_monitor_set_mqtt_connected(bool connected);
 void health_monitor_set_udp_ready(bool ready);
 void health_monitor_set_streaming_enabled(bool enabled);
 void health_monitor_set_wifi_rssi(int8_t rssi);
+void health_monitor_record_queue_fill(uint32_t fill);
 void health_monitor_increment_packets_sent(void);
 void health_monitor_increment_packets_dropped(void);
 void health_monitor_increment_udp_errors(void);

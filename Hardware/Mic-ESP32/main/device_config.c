@@ -10,11 +10,7 @@
 #include "nvs.h"
 #include "nvs_flash.h"
 
-#if __has_include("device_secrets.h")
-#include "device_secrets.h"
-#else
 #include "device_secrets_defaults.h"
-#endif
 
 static const char *TAG = "device_config";
 

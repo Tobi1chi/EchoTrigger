@@ -44,6 +44,14 @@ void health_monitor_set_wifi_rssi(int8_t rssi) {
     xSemaphoreGive(s_lock);
 }
 
+void health_monitor_record_queue_fill(uint32_t fill) {
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    if (fill > s_state.max_queue_fill_seen) {
+        s_state.max_queue_fill_seen = fill;
+    }
+    xSemaphoreGive(s_lock);
+}
+
 void health_monitor_increment_packets_sent(void) {
     xSemaphoreTake(s_lock, portMAX_DELAY);
     s_state.packets_sent++;
