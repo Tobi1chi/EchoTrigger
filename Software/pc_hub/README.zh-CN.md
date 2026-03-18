@@ -149,6 +149,28 @@ export PC_HUB_MCP_PATH=/mcp
 python3 -m mcp_adapter.main
 ```
 
+## Docker
+
+使用 Docker Compose 同时启动 `worker` 和 MCP Hub：
+
+```sh
+docker compose up --build
+```
+
+这会发布以下端口：
+
+- UDP 接收：`4000/udp`
+- 兼容 HTTP API：`http://127.0.0.1:8765`
+- MCP：`http://127.0.0.1:8767/mcp`
+
+说明：
+
+- Compose 默认启动两个容器：`worker` 和 `mcp_hub`
+- clip 文件保存在命名卷 `clips`
+- Hugging Face 模型缓存保存在命名卷 `hf-cache`
+- 容器默认使用 `PC_HUB_ASR_DEVICE_MAP=cpu`，如果需要 GPU 推理请自行覆盖该变量
+- 首次启动可能较慢，因为 ASR 模型可能需要先下载到缓存卷
+
 ### 启动 legacy HTTP Hub
 
 ```sh

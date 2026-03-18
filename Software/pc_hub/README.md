@@ -147,6 +147,28 @@ export PC_HUB_MCP_PATH=/mcp
 python3 -m mcp_adapter.main
 ```
 
+## Docker
+
+Build and run the worker plus MCP hub with Docker Compose:
+
+```sh
+docker compose up --build
+```
+
+This publishes:
+
+- UDP ingest on `4000/udp`
+- legacy HTTP on `http://127.0.0.1:8765`
+- MCP on `http://127.0.0.1:8767/mcp`
+
+Notes:
+
+- the Compose stack runs two containers: `worker` and `mcp_hub`
+- clip files are stored in the named volume `clips`
+- Hugging Face model cache is stored in the named volume `hf-cache`
+- the default container setting uses `PC_HUB_ASR_DEVICE_MAP=cpu`; override it if you want GPU-backed inference
+- first startup can take a while because the ASR model may need to be downloaded into the cache volume
+
 ### Start the legacy HTTP hub
 
 ```sh

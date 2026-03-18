@@ -1,0 +1,76 @@
+services:
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["python", "-m", "worker.main"]
+    environment:
+      PC_HUB_WORKER_HOST: 0.0.0.0
+      PC_HUB_WORKER_PORT: 8766
+      PC_HUB_ASR_MODEL: ${PC_HUB_ASR_MODEL:-Qwen/Qwen3-ASR-0.6B}
+      PC_HUB_ASR_LANGUAGE: ${PC_HUB_ASR_LANGUAGE:-zh}
+      PC_HUB_ASR_DEVICE_MAP: ${PC_HUB_ASR_DEVICE_MAP:-cpu}
+      PC_HUB_ASR_DTYPE: ${PC_HUB_ASR_DTYPE:-float32}
+      PC_HUB_ASR_MAX_BATCH_SIZE: ${PC_HUB_ASR_MAX_BATCH_SIZE:-1}
+      PC_HUB_ASR_MAX_NEW_TOKENS: ${PC_HUB_ASR_MAX_NEW_TOKENS:-512}
+    ports:
+      - "8766:8766"
+    volumes:
+      - hf-cache:/root/.cache/huggingface
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import socket; s=socket.create_connection(('127.0.0.1', 8766), 2); s.close()"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  mcp_hub:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["python", "-m", "mcp_adapter.main"]
+    depends_on:
+      worker:
+        condition: service_healthy
+    environment:
+      PC_HUB_ENABLE_LEGACY_HTTP: "1"
+      PC_HUB_BIND_HOST: 0.0.0.0
+      PC_HUB_HTTP_PORT: 8765
+      PC_HUB_UDP_HOST: 0.0.0.0
+      PC_HUB_UDP_PORT: 4000
+      PC_HUB_RING_MINUTES: ${PC_HUB_RING_MINUTES:-10}
+      PC_HUB_CLIP_DIR: /app/runtime/clips
+      PC_HUB_WORKER_URL: http://worker:8766/transcribe
+      PC_HUB_CLIP_TTL_SECONDS: ${PC_HUB_CLIP_TTL_SECONDS:-900}
+      PC_HUB_MAX_QUERY_SECONDS: ${PC_HUB_MAX_QUERY_SECONDS:-120}
+      PC_HUB_STT_JOB_QUEUE_SIZE: ${PC_HUB_STT_JOB_QUEUE_SIZE:-16}
+      PC_HUB_STT_JOB_TTL_SECONDS: ${PC_HUB_STT_JOB_TTL_SECONDS:-900}
+      PC_HUB_MCP_BIND_HOST: 0.0.0.0
+      PC_HUB_MCP_PORT: 8767
+      PC_HUB_MCP_PATH: /mcp
+    ports:
+      - "4000:4000/udp"
+      - "8765:8765"
+      - "8767:8767"
+    volumes:
+      - clips:/app/runtime/clips
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/nodes', timeout=5).read()"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+volumes:
+  clips:
+  hf-cache:
