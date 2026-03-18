@@ -245,6 +245,6 @@ curl http://127.0.0.1:8765/jobs/<job_id>
 - [`Software/pc_hub/README.zh-CN.md`](Software/pc_hub/README.zh-CN.md)
 - [`AGENTS.zh-CN.md`](AGENTS.zh-CN.md)
 
----
+## Star History
 
-<p align="center">⭐ 本地优先，按需回放，听该听的。</p>
+[![Star History Chart](https://api.star-history.com/svg?repos=Tobi1chi/EchoTrigger&type=Date)](https://star-history.com/#Tobi1chi/EchoTrigger&Date)
