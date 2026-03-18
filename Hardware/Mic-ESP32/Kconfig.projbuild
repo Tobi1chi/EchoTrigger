@@ -1,0 +1,13 @@
+menu "Mic ESP32 Configuration"
+
+config MIC_SETUP_BUTTON_GPIO
+    int "GPIO for forced setup button"
+    range 0 48
+    default 9
+    help
+        GPIO used for the forced setup long-press input.
+        This must be a non-strapping input on your board.
+        Do not use GPIO0 on ESP32-S3 boards because it is commonly
+        tied to the BOOT button and affects ROM download mode.
+
+endmenu
