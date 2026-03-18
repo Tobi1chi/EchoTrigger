@@ -1,5 +1,26 @@
 menu "Mic ESP32 Configuration"
 
+config MIC_I2S_BCLK_GPIO
+    int "I2S BCLK GPIO"
+    range 0 48
+    default 4
+    help
+        GPIO used for the I2S bit clock line connected to the microphone.
+
+config MIC_I2S_WS_GPIO
+    int "I2S WS GPIO"
+    range 0 48
+    default 5
+    help
+        GPIO used for the I2S word-select line connected to the microphone.
+
+config MIC_I2S_DIN_GPIO
+    int "I2S DIN GPIO"
+    range 0 48
+    default 6
+    help
+        GPIO used for the I2S data input line connected to the microphone.
+
 config MIC_SETUP_BUTTON_GPIO
     int "GPIO for forced setup button"
     range 0 48
@@ -9,5 +30,42 @@ config MIC_SETUP_BUTTON_GPIO
         This must be a non-strapping input on your board.
         Do not use GPIO0 on ESP32-S3 boards because it is commonly
         tied to the BOOT button and affects ROM download mode.
+
+config MIC_STREAMING_ENABLED_DEFAULT
+    bool "Enable audio streaming by default"
+    default y
+    help
+        Default startup value for streaming before any runtime override is
+        loaded from NVS.
+
+config MIC_TELEMETRY_INTERVAL_MS
+    int "Default telemetry interval (ms)"
+    range 1000 3600000
+    default 10000
+    help
+        Default telemetry publish interval before any runtime override is
+        loaded from NVS.
+
+config MIC_SETUP_PORTAL_RETRY_DELAY_MS
+    int "Setup portal retry delay (ms)"
+    range 100 60000
+    default 2000
+    help
+        Delay before rebooting after a required setup portal startup failure.
+
+config MIC_SETUP_BUTTON_HOLD_MS
+    int "Forced setup button hold time (ms)"
+    range 500 30000
+    default 5000
+    help
+        How long the setup button must be held during boot to force AP
+        provisioning mode.
+
+config MIC_AUDIO_PACKET_QUEUE_DEPTH
+    int "Audio packet queue depth"
+    range 4 128
+    default 16
+    help
+        Number of audio packets buffered between capture and UDP transmit.
 
 endmenu

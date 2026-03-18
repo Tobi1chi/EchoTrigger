@@ -102,16 +102,20 @@ flowchart LR
 
 这个文件是可选的。如果不存在，固件会使用内置的空默认值，并等待通过 setup portal 完成初始化。
 
-### 2. 检查设备默认值
+### 2. 检查编译期默认值
 
-检查 [`main/device_config.c`](main/device_config.c) 中这些默认项是否符合你的硬件：
+检查 [`sdkconfig.defaults`](sdkconfig.defaults) 和 [`Kconfig.projbuild`](Kconfig.projbuild) 中这些默认项是否符合你的硬件：
 
 - I2S GPIO 引脚映射
 - 用于强制重新配网的 setup 按键引脚
-- `streaming_enabled`
-- `telemetry_interval_ms`
+- 默认 streaming 开关
+- 默认 telemetry 间隔
+- 强制 setup 的长按时长和失败重试延迟
+- 音频包队列深度
 
-Wi‑Fi、MQTT、UDP 和 `node_id` 的默认值来自 `device_secrets.h`，也可以通过配置门户填写。
+这些值也可以通过 `idf.py menuconfig` 覆盖。
+
+Wi‑Fi、MQTT、UDP 和 `node_id` 的默认值仍来自 `device_secrets.h`，也可以通过配置门户填写。
 
 ### 3. 检查接线
 
@@ -176,6 +180,17 @@ mic-setup
 - 默认恢复输入通过 `CONFIG_MIC_SETUP_BUTTON_GPIO` 设为 `GPIO9`
 - 不要在 ESP32-S3 板子上把这条恢复路径接到 `GPIO0`，因为 `GPIO0` 是 strapping pin，而且通常与板载 BOOT 按键相连
 - 如果你的硬件把 setup 按键接到了其他非 strapping GPIO，请在 [`sdkconfig.defaults`](sdkconfig.defaults) 中覆盖 `CONFIG_MIC_SETUP_BUTTON_GPIO`，或通过 `menuconfig` 修改
+
+其他编译期固件默认值现在也统一放在 [`Kconfig.projbuild`](Kconfig.projbuild) 下，包括：
+
+- `CONFIG_MIC_I2S_BCLK_GPIO`
+- `CONFIG_MIC_I2S_WS_GPIO`
+- `CONFIG_MIC_I2S_DIN_GPIO`
+- `CONFIG_MIC_STREAMING_ENABLED_DEFAULT`
+- `CONFIG_MIC_TELEMETRY_INTERVAL_MS`
+- `CONFIG_MIC_SETUP_PORTAL_RETRY_DELAY_MS`
+- `CONFIG_MIC_SETUP_BUTTON_HOLD_MS`
+- `CONFIG_MIC_AUDIO_PACKET_QUEUE_DEPTH`
 
 ## 构建
 

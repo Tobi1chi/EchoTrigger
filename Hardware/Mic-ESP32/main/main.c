@@ -18,14 +18,15 @@
 #include "health_monitor.h"
 #include "mqtt_control.h"
 #include "nvs_flash.h"
+#include "sdkconfig.h"
 #include "setup_portal.h"
 #include "udp_streamer.h"
 
 static const char *TAG = "main";
-static const TickType_t SETUP_PORTAL_RETRY_DELAY_TICKS = pdMS_TO_TICKS(2000);
+static const TickType_t SETUP_PORTAL_RETRY_DELAY_TICKS = pdMS_TO_TICKS(CONFIG_MIC_SETUP_PORTAL_RETRY_DELAY_MS);
 static const TickType_t SETUP_BUTTON_POLL_TICKS = pdMS_TO_TICKS(100);
-static const TickType_t SETUP_BUTTON_HOLD_TICKS = pdMS_TO_TICKS(5000);
-static const UBaseType_t AUDIO_PACKET_QUEUE_DEPTH = 16;
+static const TickType_t SETUP_BUTTON_HOLD_TICKS = pdMS_TO_TICKS(CONFIG_MIC_SETUP_BUTTON_HOLD_MS);
+static const UBaseType_t AUDIO_PACKET_QUEUE_DEPTH = CONFIG_MIC_AUDIO_PACKET_QUEUE_DEPTH;
 static EventGroupHandle_t s_network_events;
 static StaticTask_t s_telemetry_task_buffer;
 static StackType_t s_telemetry_task_stack[4096];

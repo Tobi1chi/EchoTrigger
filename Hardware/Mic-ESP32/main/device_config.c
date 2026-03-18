@@ -26,12 +26,12 @@ static device_config_t s_config = {
     .udp_port = DEVICE_SECRET_UDP_PORT,
     .node_uuid = "",
     .node_id = DEVICE_SECRET_NODE_ID,
-    .i2s_bclk_pin = GPIO_NUM_4,
-    .i2s_ws_pin = GPIO_NUM_5,
-    .i2s_din_pin = GPIO_NUM_6,
+    .i2s_bclk_pin = (gpio_num_t)CONFIG_MIC_I2S_BCLK_GPIO,
+    .i2s_ws_pin = (gpio_num_t)CONFIG_MIC_I2S_WS_GPIO,
+    .i2s_din_pin = (gpio_num_t)CONFIG_MIC_I2S_DIN_GPIO,
     .setup_button_pin = (gpio_num_t)CONFIG_MIC_SETUP_BUTTON_GPIO,
-    .streaming_enabled = true,
-    .telemetry_interval_ms = 10000,
+    .streaming_enabled = CONFIG_MIC_STREAMING_ENABLED_DEFAULT,
+    .telemetry_interval_ms = CONFIG_MIC_TELEMETRY_INTERVAL_MS,
     .is_configured = false,
 };
 
