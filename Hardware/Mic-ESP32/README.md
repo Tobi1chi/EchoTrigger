@@ -100,16 +100,20 @@ Fill in:
 
 This file is optional. If it is not present, the firmware uses built-in empty defaults and expects provisioning through the setup portal.
 
-### 2. Verify device defaults
+### 2. Verify compile-time defaults
 
-Review [`main/device_config.c`](main/device_config.c) for:
+Review [`sdkconfig.defaults`](sdkconfig.defaults) and [`Kconfig.projbuild`](Kconfig.projbuild) for:
 
 - I2S GPIO mapping
 - setup button pin for forced provisioning recovery
-- `streaming_enabled`
-- `telemetry_interval_ms`
+- default streaming enable state
+- default telemetry interval
+- forced setup hold time and retry delay
+- audio packet queue depth
 
-Network, MQTT, UDP, and `node_id` defaults come from `device_secrets.h` or are entered through the setup portal.
+These values can also be overridden through `idf.py menuconfig`.
+
+Network, MQTT, UDP, and `node_id` defaults still come from `device_secrets.h` or are entered through the setup portal.
 
 ### 3. Verify wiring
 
@@ -174,6 +178,17 @@ Board note:
 - this recovery input defaults to `GPIO9` through `CONFIG_MIC_SETUP_BUTTON_GPIO`
 - do not reuse `GPIO0` for this path on ESP32-S3 boards, because `GPIO0` is a strapping pin and is commonly tied to the on-board BOOT button
 - if your hardware uses a different non-strapping GPIO for the setup button, override `CONFIG_MIC_SETUP_BUTTON_GPIO` in [`sdkconfig.defaults`](sdkconfig.defaults) or through `menuconfig`
+
+Other compile-time firmware defaults now also live under [`Kconfig.projbuild`](Kconfig.projbuild), including:
+
+- `CONFIG_MIC_I2S_BCLK_GPIO`
+- `CONFIG_MIC_I2S_WS_GPIO`
+- `CONFIG_MIC_I2S_DIN_GPIO`
+- `CONFIG_MIC_STREAMING_ENABLED_DEFAULT`
+- `CONFIG_MIC_TELEMETRY_INTERVAL_MS`
+- `CONFIG_MIC_SETUP_PORTAL_RETRY_DELAY_MS`
+- `CONFIG_MIC_SETUP_BUTTON_HOLD_MS`
+- `CONFIG_MIC_AUDIO_PACKET_QUEUE_DEPTH`
 
 ## Build
 
