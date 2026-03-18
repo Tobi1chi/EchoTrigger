@@ -23,9 +23,8 @@
 
 static const char *TAG = "main";
 static const TickType_t SETUP_PORTAL_RETRY_DELAY_TICKS = pdMS_TO_TICKS(2000);
-static const TickType_t BOOT_BUTTON_POLL_TICKS = pdMS_TO_TICKS(100);
-static const TickType_t BOOT_BUTTON_HOLD_TICKS = pdMS_TO_TICKS(5000);
-static const gpio_num_t BOOT_BUTTON_GPIO = GPIO_NUM_0;
+static const TickType_t SETUP_BUTTON_POLL_TICKS = pdMS_TO_TICKS(100);
+static const TickType_t SETUP_BUTTON_HOLD_TICKS = pdMS_TO_TICKS(5000);
 static const UBaseType_t AUDIO_PACKET_QUEUE_DEPTH = 16;
 static EventGroupHandle_t s_network_events;
 static StaticTask_t s_telemetry_task_buffer;
@@ -49,8 +48,9 @@ static void restart_after_setup_portal_failure(void) {
 }
 
 static bool should_force_setup_portal(void) {
+    const gpio_num_t setup_button_gpio = device_config_get()->setup_button_pin;
     const gpio_config_t config = {
-        .pin_bit_mask = 1ULL << BOOT_BUTTON_GPIO,
+        .pin_bit_mask = 1ULL << setup_button_gpio,
         .mode = GPIO_MODE_INPUT,
         .pull_up_en = GPIO_PULLUP_ENABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
@@ -58,23 +58,23 @@ static bool should_force_setup_portal(void) {
     };
     ESP_ERROR_CHECK(gpio_config(&config));
 
-    ESP_LOGI(TAG, "Checking BOOT button for forced setup mode");
-    if (gpio_get_level(BOOT_BUTTON_GPIO) != 0) {
+    ESP_LOGI(TAG, "Checking setup button on GPIO %d for forced setup mode", (int)setup_button_gpio);
+    if (gpio_get_level(setup_button_gpio) != 0) {
         return false;
     }
 
-    ESP_LOGI(TAG, "BOOT button held, waiting for long-press threshold");
+    ESP_LOGI(TAG, "Setup button held, waiting for long-press threshold");
     TickType_t elapsed = 0;
-    while (elapsed < BOOT_BUTTON_HOLD_TICKS) {
-        if (gpio_get_level(BOOT_BUTTON_GPIO) != 0) {
-            ESP_LOGI(TAG, "BOOT button released before threshold, continuing normal startup");
+    while (elapsed < SETUP_BUTTON_HOLD_TICKS) {
+        if (gpio_get_level(setup_button_gpio) != 0) {
+            ESP_LOGI(TAG, "Setup button released before threshold, continuing normal startup");
             return false;
         }
-        vTaskDelay(BOOT_BUTTON_POLL_TICKS);
-        elapsed += BOOT_BUTTON_POLL_TICKS;
+        vTaskDelay(SETUP_BUTTON_POLL_TICKS);
+        elapsed += SETUP_BUTTON_POLL_TICKS;
     }
 
-    ESP_LOGW(TAG, "BOOT button held for 5s, forcing AP setup portal");
+    ESP_LOGW(TAG, "Setup button held for 5s, forcing AP setup portal");
     return true;
 }
 

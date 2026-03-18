@@ -107,6 +107,7 @@ flowchart LR
 检查 [`main/device_config.c`](main/device_config.c) 中这些默认项是否符合你的硬件：
 
 - I2S GPIO 引脚映射
+- 用于强制重新配网的 setup 按键引脚
 - `streaming_enabled`
 - `telemetry_interval_ms`
 
@@ -165,6 +166,16 @@ mic-setup
 
 - 暂时没有 `mDNS` 主机名
 - 暂时没有额外认证机制，只依赖局域网访问边界
+
+## 强制恢复配置模式
+
+如果设备已经保存过配置，但你仍然需要强制它重新进入 AP 配网模式，可以在启动时将独立的 setup 按键持续拉低 5 秒。
+
+硬件说明：
+
+- 默认恢复输入在 [`main/device_config.c`](main/device_config.c) 中映射到 `GPIO9`
+- 不要在 ESP32-S3 板子上把这条恢复路径接到 `GPIO0`，因为 `GPIO0` 是 strapping pin，而且通常与板载 BOOT 按键相连
+- 如果你的硬件把 setup 按键接到了其他非 strapping GPIO，请在 [`main/device_config.c`](main/device_config.c) 中修改 `setup_button_pin`
 
 ## 构建
 
