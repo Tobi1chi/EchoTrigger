@@ -28,6 +28,7 @@ static char s_availability_topic[96];
 static QueueHandle_t s_command_queue;
 static StaticTask_t s_control_task_buffer;
 static StackType_t s_control_task_stack[4096];
+static TaskHandle_t s_control_task_handle;
 
 typedef enum {
     CONTROL_COMMAND_STREAMING = 0,
@@ -81,6 +82,8 @@ static void publish_snapshot(void) {
     publish_i32("status/rssi", snapshot.wifi_rssi, 0, false);
     publish_u32("status/packets_sent", snapshot.packets_sent, 0, false);
     publish_u32("status/packets_dropped", snapshot.packets_dropped, 0, false);
+    publish_u32("status/udp_errors", snapshot.udp_errors, 0, false);
+    publish_u32("status/queue_peak", snapshot.max_queue_fill_seen, 0, false);
     publish_u32("status/uptime", (uint32_t)(snapshot.uptime_ms / 1000ULL), 0, false);
     publish_udp_target();
 }
@@ -248,15 +251,15 @@ esp_err_t mqtt_control_init(void) {
     if (s_command_queue == NULL) {
         return ESP_ERR_NO_MEM;
     }
-    TaskHandle_t control_handle = xTaskCreateStaticPinnedToCore(control_task,
-                                                                "mqtt_control_task",
-                                                                sizeof(s_control_task_stack) / sizeof(StackType_t),
-                                                                NULL,
-                                                                5,
-                                                                s_control_task_stack,
-                                                                &s_control_task_buffer,
-                                                                tskNO_AFFINITY);
-    if (control_handle == NULL) {
+    s_control_task_handle = xTaskCreateStaticPinnedToCore(control_task,
+                                                          "mqtt_control_task",
+                                                          sizeof(s_control_task_stack) / sizeof(StackType_t),
+                                                          NULL,
+                                                          5,
+                                                          s_control_task_stack,
+                                                          &s_control_task_buffer,
+                                                          tskNO_AFFINITY);
+    if (s_control_task_handle == NULL) {
         return ESP_ERR_NO_MEM;
     }
 
@@ -311,4 +314,8 @@ void mqtt_control_publish_boot_state(void) {
     if (s_client != NULL) {
         publish_snapshot();
     }
+}
+
+TaskHandle_t mqtt_control_get_task_handle(void) {
+    return s_control_task_handle;
 }
