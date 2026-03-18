@@ -15,6 +15,12 @@
 
 static const char *TAG = "device_config";
 
+#ifdef CONFIG_MIC_STREAMING_ENABLED_DEFAULT
+#define MIC_STREAMING_ENABLED_DEFAULT true
+#else
+#define MIC_STREAMING_ENABLED_DEFAULT false
+#endif
+
 static device_config_t s_config = {
     .wifi_ssid = DEVICE_SECRET_WIFI_SSID,
     .wifi_password = DEVICE_SECRET_WIFI_PASS,
@@ -30,7 +36,7 @@ static device_config_t s_config = {
     .i2s_ws_pin = (gpio_num_t)CONFIG_MIC_I2S_WS_GPIO,
     .i2s_din_pin = (gpio_num_t)CONFIG_MIC_I2S_DIN_GPIO,
     .setup_button_pin = (gpio_num_t)CONFIG_MIC_SETUP_BUTTON_GPIO,
-    .streaming_enabled = CONFIG_MIC_STREAMING_ENABLED_DEFAULT,
+    .streaming_enabled = MIC_STREAMING_ENABLED_DEFAULT,
     .telemetry_interval_ms = CONFIG_MIC_TELEMETRY_INTERVAL_MS,
     .is_configured = false,
 };
