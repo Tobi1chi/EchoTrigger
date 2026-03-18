@@ -168,7 +168,8 @@ docker compose up --build
 - Compose 默认启动两个容器：`worker` 和 `mcp_hub`
 - clip 文件保存在命名卷 `clips`
 - Hugging Face 模型缓存保存在命名卷 `hf-cache`
-- 容器默认使用 `PC_HUB_ASR_DEVICE_MAP=cpu`，如果需要 GPU 推理请自行覆盖该变量
+- Compose 中的 `worker` 默认申请 `gpus: all`，并默认使用 `PC_HUB_ASR_DEVICE_MAP=cuda`
+- 如果你要改成纯 CPU 推理，请把 `PC_HUB_ASR_DEVICE_MAP` 覆盖为 `cpu`，并移除或覆盖 GPU 申请
 - 首次启动可能较慢，因为 ASR 模型可能需要先下载到缓存卷
 
 ### 启动 legacy HTTP Hub

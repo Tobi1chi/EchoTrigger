@@ -4,12 +4,13 @@ services:
       context: .
       dockerfile: Dockerfile
     command: ["python", "-m", "worker.main"]
+    gpus: all
     environment:
       PC_HUB_WORKER_HOST: 0.0.0.0
       PC_HUB_WORKER_PORT: 8766
       PC_HUB_ASR_MODEL: ${PC_HUB_ASR_MODEL:-Qwen/Qwen3-ASR-0.6B}
       PC_HUB_ASR_LANGUAGE: ${PC_HUB_ASR_LANGUAGE:-zh}
-      PC_HUB_ASR_DEVICE_MAP: ${PC_HUB_ASR_DEVICE_MAP:-cpu}
+      PC_HUB_ASR_DEVICE_MAP: ${PC_HUB_ASR_DEVICE_MAP:-cuda}
       PC_HUB_ASR_DTYPE: ${PC_HUB_ASR_DTYPE:-float32}
       PC_HUB_ASR_MAX_BATCH_SIZE: ${PC_HUB_ASR_MAX_BATCH_SIZE:-1}
       PC_HUB_ASR_MAX_NEW_TOKENS: ${PC_HUB_ASR_MAX_NEW_TOKENS:-512}

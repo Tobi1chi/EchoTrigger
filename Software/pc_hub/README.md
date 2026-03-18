@@ -166,7 +166,8 @@ Notes:
 - the Compose stack runs two containers: `worker` and `mcp_hub`
 - clip files are stored in the named volume `clips`
 - Hugging Face model cache is stored in the named volume `hf-cache`
-- the default container setting uses `PC_HUB_ASR_DEVICE_MAP=cpu`; override it if you want GPU-backed inference
+- the Compose worker requests `gpus: all` and defaults `PC_HUB_ASR_DEVICE_MAP=cuda`
+- if you want CPU-only inference, override `PC_HUB_ASR_DEVICE_MAP=cpu` and remove or override the GPU request
 - first startup can take a while because the ASR model may need to be downloaded into the cache volume
 
 ### Start the legacy HTTP hub
