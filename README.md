@@ -247,6 +247,6 @@ audio file -> simulated UDP packets -> pc_hub -> ring buffer -> WAV extraction -
 - [`Software/pc_hub/README.md`](Software/pc_hub/README.md)
 - [`AGENTS.md`](AGENTS.md)
 
----
+## Star History
 
-<p align="center">⭐ Built for local-first, event-triggered audio replay.</p>
+[![Star History Chart](https://api.star-history.com/svg?repos=Tobi1chi/EchoTrigger&type=Date)](https://star-history.com/#Tobi1chi/EchoTrigger&Date)
