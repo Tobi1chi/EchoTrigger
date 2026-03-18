@@ -171,9 +171,9 @@ When a node already has saved config but you need to force it back into AP provi
 
 Board note:
 
-- this recovery input is intentionally mapped to `GPIO9` by default in [`main/device_config.c`](main/device_config.c)
+- this recovery input defaults to `GPIO9` through `CONFIG_MIC_SETUP_BUTTON_GPIO`
 - do not reuse `GPIO0` for this path on ESP32-S3 boards, because `GPIO0` is a strapping pin and is commonly tied to the on-board BOOT button
-- if your hardware uses a different non-strapping GPIO for the setup button, update `setup_button_pin` in [`main/device_config.c`](main/device_config.c)
+- if your hardware uses a different non-strapping GPIO for the setup button, override `CONFIG_MIC_SETUP_BUTTON_GPIO` in [`sdkconfig.defaults`](sdkconfig.defaults) or through `menuconfig`
 
 ## Build
 
