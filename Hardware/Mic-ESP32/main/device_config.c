@@ -28,6 +28,7 @@ static device_config_t s_config = {
     .i2s_bclk_pin = GPIO_NUM_4,
     .i2s_ws_pin = GPIO_NUM_5,
     .i2s_din_pin = GPIO_NUM_6,
+    .setup_button_pin = GPIO_NUM_9,
     .streaming_enabled = true,
     .telemetry_interval_ms = 10000,
     .is_configured = false,

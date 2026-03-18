@@ -32,6 +32,7 @@ typedef struct {
     gpio_num_t i2s_bclk_pin;
     gpio_num_t i2s_ws_pin;
     gpio_num_t i2s_din_pin;
+    gpio_num_t setup_button_pin;
     bool streaming_enabled;
     uint32_t telemetry_interval_ms;
     bool is_configured;

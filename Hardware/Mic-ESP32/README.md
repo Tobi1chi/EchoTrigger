@@ -105,6 +105,7 @@ This file is optional. If it is not present, the firmware uses built-in empty de
 Review [`main/device_config.c`](main/device_config.c) for:
 
 - I2S GPIO mapping
+- setup button pin for forced provisioning recovery
 - `streaming_enabled`
 - `telemetry_interval_ms`
 
@@ -163,6 +164,16 @@ Current limitations:
 
 - no `mDNS` hostname is exposed yet
 - no extra authentication is added beyond local network access
+
+## Forced Recovery Setup
+
+When a node already has saved config but you need to force it back into AP provisioning mode, hold the dedicated setup button low for 5 seconds during boot.
+
+Board note:
+
+- this recovery input is intentionally mapped to `GPIO9` by default in [`main/device_config.c`](main/device_config.c)
+- do not reuse `GPIO0` for this path on ESP32-S3 boards, because `GPIO0` is a strapping pin and is commonly tied to the on-board BOOT button
+- if your hardware uses a different non-strapping GPIO for the setup button, update `setup_button_pin` in [`main/device_config.c`](main/device_config.c)
 
 ## Build
 
