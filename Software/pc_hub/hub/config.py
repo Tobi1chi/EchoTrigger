@@ -22,6 +22,14 @@ class HubConfig:
     mcp_bind_host: str
     mcp_port: int
     mcp_path: str
+    mqtt_host: str
+    mqtt_port: int
+    mqtt_username: str | None
+    mqtt_password: str | None
+    mqtt_client_id: str
+    ha_discovery_prefix: str
+    mqtt_topic_prefix: str
+    node_offline_seconds: int
 
 
 def load_config() -> HubConfig:
@@ -43,4 +51,20 @@ def load_config() -> HubConfig:
         mcp_bind_host=os.getenv("PC_HUB_MCP_BIND_HOST", "127.0.0.1"),
         mcp_port=int(os.getenv("PC_HUB_MCP_PORT", "8767")),
         mcp_path=os.getenv("PC_HUB_MCP_PATH", "/mcp"),
+        mqtt_host=os.getenv("PC_HUB_MQTT_HOST", "").strip(),
+        mqtt_port=int(os.getenv("PC_HUB_MQTT_PORT", "1883")),
+        mqtt_username=_nullable_env("PC_HUB_MQTT_USERNAME"),
+        mqtt_password=_nullable_env("PC_HUB_MQTT_PASSWORD"),
+        mqtt_client_id=os.getenv("PC_HUB_MQTT_CLIENT_ID", "pc-audio-hub"),
+        ha_discovery_prefix=os.getenv("PC_HUB_HA_DISCOVERY_PREFIX", "homeassistant"),
+        mqtt_topic_prefix=os.getenv("PC_HUB_MQTT_TOPIC_PREFIX", "mic_hub"),
+        node_offline_seconds=int(os.getenv("PC_HUB_NODE_OFFLINE_SECONDS", "30")),
     )
+
+
+def _nullable_env(name: str) -> str | None:
+    value = os.getenv(name)
+    if value is None:
+        return None
+    cleaned = value.strip()
+    return cleaned if cleaned else None

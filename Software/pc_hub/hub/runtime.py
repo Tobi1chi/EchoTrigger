@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 
 from hub.config import HubConfig
 from hub.extractor import AudioExtractor
+from hub.ha_mqtt import HaMqttBridge, HaMqttBridgeConfig
 from hub.jobs import SttJobManager
 from hub.receiver import UdpReceiver
 from hub.registry import NodeRegistry
@@ -22,6 +24,7 @@ class HubRuntime:
     jobs: SttJobManager
     receiver: UdpReceiver
     services: HubServices
+    ha_bridge: HaMqttBridge | None
 
     @classmethod
     def from_config(cls, config: HubConfig) -> HubRuntime:
@@ -49,6 +52,8 @@ class HubRuntime:
             jobs=jobs,
             max_query_seconds=config.max_query_seconds,
         )
+        ha_bridge_config = HaMqttBridgeConfig.from_hub_config(config)
+        ha_bridge = HaMqttBridge(config=ha_bridge_config, registry=registry) if ha_bridge_config.enabled else None
         return cls(
             config=config,
             registry=registry,
@@ -58,12 +63,26 @@ class HubRuntime:
             jobs=jobs,
             receiver=receiver,
             services=services,
+            ha_bridge=ha_bridge,
         )
 
     def start(self) -> None:
         self.receiver.start()
         self.jobs.start()
+        if self.ha_bridge is not None:
+            try:
+                self.ha_bridge.start()
+            except Exception:
+                logging.getLogger("pc_hub.runtime").exception(
+                    "Home Assistant MQTT bridge failed to start; continuing without HA integration"
+                )
+
+    @property
+    def ha_bridge_running(self) -> bool:
+        return self.ha_bridge.is_running if self.ha_bridge is not None else False
 
     def stop(self) -> None:
+        if self.ha_bridge is not None:
+            self.ha_bridge.stop()
         self.jobs.stop()
         self.receiver.stop()

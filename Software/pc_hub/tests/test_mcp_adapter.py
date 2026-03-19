@@ -62,6 +62,14 @@ def _config() -> HubConfig:
         mcp_bind_host="127.0.0.1",
         mcp_port=8767,
         mcp_path="/mcp",
+        mqtt_host="",
+        mqtt_port=1883,
+        mqtt_username=None,
+        mqtt_password=None,
+        mqtt_client_id="pc-audio-hub",
+        ha_discovery_prefix="homeassistant",
+        mqtt_topic_prefix="mic_hub",
+        node_offline_seconds=30,
     )
 
 
