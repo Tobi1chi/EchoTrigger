@@ -3,7 +3,7 @@ name = "pc-audio-hub"
 version = "0.1.0"
 description = "PC audio hub and STT worker for ESP32-S3 microphone nodes"
 requires-python = ">=3.12"
-dependencies = ["mcp>=1.26.0", "qwen-asr>=0.0.6", "soundfile>=0.13.1"]
+dependencies = ["mcp>=1.26.0", "paho-mqtt>=2.1.0", "qwen-asr>=0.0.6", "soundfile>=0.13.1"]
 
 [project.scripts]
 pc-hub = "hub.main:main"

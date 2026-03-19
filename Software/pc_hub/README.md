@@ -12,6 +12,7 @@ The hub is the PC-side runtime that turns a live PCM stream into queryable short
 - extracts WAV clips by time range
 - submits async STT jobs against extracted clips
 - exposes an MCP server as the preferred AI-facing interface
+- publishes Home Assistant MQTT discovery plus aggregated node status
 
 ## 🌊 Runtime Topology
 
@@ -41,6 +42,7 @@ flowchart LR
 | Legacy async `/query/stt` job API | Implemented, deprecated |
 | Legacy `/jobs/<job_id>` API | Implemented, deprecated |
 | Local ASR worker | Implemented |
+| Home Assistant MQTT bridge | Implemented |
 | Video / vision pipeline integration | Not implemented |
 
 ## Directory Layout
@@ -86,6 +88,19 @@ This installs the editable `pc-audio-hub` package and its declared dependencies.
 | `PC_HUB_MAX_QUERY_SECONDS` | `120` |
 | `PC_HUB_STT_JOB_QUEUE_SIZE` | `16` |
 | `PC_HUB_STT_JOB_TTL_SECONDS` | `900` |
+
+### Home Assistant MQTT
+
+| Variable | Default |
+| --- | --- |
+| `PC_HUB_MQTT_HOST` | disabled when empty |
+| `PC_HUB_MQTT_PORT` | `1883` |
+| `PC_HUB_MQTT_USERNAME` | unset |
+| `PC_HUB_MQTT_PASSWORD` | unset |
+| `PC_HUB_MQTT_CLIENT_ID` | `pc-audio-hub` |
+| `PC_HUB_HA_DISCOVERY_PREFIX` | `homeassistant` |
+| `PC_HUB_MQTT_TOPIC_PREFIX` | `mic_hub` |
+| `PC_HUB_NODE_OFFLINE_SECONDS` | `30` |
 
 ### MCP
 
@@ -144,8 +159,28 @@ python3 -m worker.main
 export PC_HUB_MCP_BIND_HOST=127.0.0.1
 export PC_HUB_MCP_PORT=8767
 export PC_HUB_MCP_PATH=/mcp
+export PC_HUB_MQTT_HOST=127.0.0.1
+export PC_HUB_MQTT_PORT=1883
 python3 -m mcp_adapter.main
 ```
+
+With MQTT enabled, the hub publishes Home Assistant discovery under `homeassistant/...` and hub-owned state topics under `mic_hub/...`.
+
+The hub exposes one Home Assistant device and aggregates all node entities beneath it:
+
+- hub online
+- visible node count
+- online node count
+- last publish time
+- per-node online status
+- per-node `node_id`
+- per-node packet counters
+- per-node control buttons for `start streaming`, `stop streaming`, and `restart`
+
+Control entities publish directly to the existing node MQTT command topics:
+
+- `mic/<node_uuid>/cmd/streaming/set` with `ON` or `OFF`
+- `mic/<node_uuid>/cmd/restart`
 
 ## Docker
 

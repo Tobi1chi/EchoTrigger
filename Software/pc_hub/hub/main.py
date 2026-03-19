@@ -26,6 +26,19 @@ def main() -> None:
         config.max_query_seconds,
         config.stt_job_queue_size,
     )
+    if runtime.ha_bridge_running:
+        logging.getLogger("pc_hub").info(
+            "Home Assistant MQTT bridge enabled for %s:%d with topic prefix %s",
+            config.mqtt_host,
+            config.mqtt_port,
+            config.mqtt_topic_prefix,
+        )
+    elif config.mqtt_host:
+        logging.getLogger("pc_hub").warning(
+            "Home Assistant MQTT bridge is configured for %s:%d but is not running; continuing without HA integration",
+            config.mqtt_host,
+            config.mqtt_port,
+        )
     server = build_server(
         config.bind_host,
         config.http_port,
