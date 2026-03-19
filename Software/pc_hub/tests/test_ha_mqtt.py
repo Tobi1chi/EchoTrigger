@@ -76,6 +76,43 @@ class _SubscribeFailingClient(_FakeClient):
         return (1, 1)
 
 
+class _DelayedRetainedClient(_FakeClient):
+    def __init__(self, retained_topics: list[str], delay_seconds: float) -> None:
+        super().__init__()
+        self.retained_topics = retained_topics
+        self.delay_seconds = delay_seconds
+
+    def subscribe(self, topic: str, qos: int = 0):
+        result = super().subscribe(topic, qos)
+        if self.on_message is not None:
+            import threading
+
+            def _emit() -> None:
+                time.sleep(self.delay_seconds)
+                for retained_topic in self.retained_topics:
+                    message = type("Message", (), {"topic": retained_topic, "retain": True})()
+                    self.on_message(self, None, message)
+
+            threading.Thread(target=_emit, daemon=True).start()
+        return result
+
+
+class _NoisyRetainedClient(_FakeClient):
+    def subscribe(self, topic: str, qos: int = 0):
+        result = super().subscribe(topic, qos)
+        if self.on_message is not None:
+            import threading
+
+            def _emit() -> None:
+                for _ in range(10):
+                    message = type("Message", (), {"topic": "mic_hub/nodes/esp32s3-noisy/online", "retain": True})()
+                    self.on_message(self, None, message)
+                    time.sleep(0.02)
+
+            threading.Thread(target=_emit, daemon=True).start()
+        return result
+
+
 class _RegistryStub:
     def __init__(self, nodes: list[NodeState] | None = None) -> None:
         self.nodes = nodes or []
@@ -419,3 +456,90 @@ def test_subscribe_failure_aborts_bridge_start() -> None:
     assert bridge.is_running is False
     assert client.loop_stopped is True
     assert client.disconnected is True
+
+
+def test_start_waits_for_delayed_retained_messages(monkeypatch) -> None:
+    monkeypatch.setattr(ha_mqtt_module, "RECONCILE_QUIET_PERIOD_SECONDS", 0.02)
+    monkeypatch.setattr(ha_mqtt_module, "RECONCILE_TIMEOUT_SECONDS", 0.2)
+    registry = _RegistryStub([])
+    client = _DelayedRetainedClient(["mic_hub/nodes/esp32s3-delayed/online"], delay_seconds=0.05)
+    bridge = HaMqttBridge(
+        config=HaMqttBridgeConfig(
+            host="mqtt.local",
+            port=1883,
+            username="user",
+            password="pass",
+            client_id="pc-hub-test",
+            discovery_prefix="homeassistant",
+            topic_prefix="mic_hub",
+            node_offline_seconds=30,
+        ),
+        registry=registry,  # type: ignore[arg-type]
+        mqtt_client=client,
+        now_fn=time.monotonic,
+    )
+
+    bridge.start()
+    bridge.stop()
+
+    delayed_payloads = [
+        payload
+        for topic, payload, _qos, _retain in client.published
+        if topic == "mic_hub/nodes/esp32s3-delayed/online"
+    ]
+    assert delayed_payloads[-1] == "offline"
+
+
+def test_start_succeeds_when_no_retained_messages_exist(monkeypatch) -> None:
+    monkeypatch.setattr(ha_mqtt_module, "RECONCILE_QUIET_PERIOD_SECONDS", 0.02)
+    monkeypatch.setattr(ha_mqtt_module, "RECONCILE_TIMEOUT_SECONDS", 0.05)
+    registry = NodeRegistry()
+    client = _FakeClient()
+    bridge = HaMqttBridge(
+        config=HaMqttBridgeConfig(
+            host="mqtt.local",
+            port=1883,
+            username="user",
+            password="pass",
+            client_id="pc-hub-test",
+            discovery_prefix="homeassistant",
+            topic_prefix="mic_hub",
+            node_offline_seconds=30,
+        ),
+        registry=registry,
+        mqtt_client=client,
+        now_fn=time.monotonic,
+    )
+
+    bridge.start()
+    assert bridge.is_running is True
+    bridge.stop()
+
+
+def test_start_fails_when_retained_stream_never_quiets(monkeypatch) -> None:
+    monkeypatch.setattr(ha_mqtt_module, "RECONCILE_QUIET_PERIOD_SECONDS", 0.05)
+    monkeypatch.setattr(ha_mqtt_module, "RECONCILE_TIMEOUT_SECONDS", 0.06)
+    registry = NodeRegistry()
+    client = _NoisyRetainedClient()
+    bridge = HaMqttBridge(
+        config=HaMqttBridgeConfig(
+            host="mqtt.local",
+            port=1883,
+            username="user",
+            password="pass",
+            client_id="pc-hub-test",
+            discovery_prefix="homeassistant",
+            topic_prefix="mic_hub",
+            node_offline_seconds=30,
+        ),
+        registry=registry,
+        mqtt_client=client,
+        now_fn=time.monotonic,
+    )
+
+    import pytest
+
+    with pytest.raises(RuntimeError, match="timed out while waiting for retained MQTT reconcile messages"):
+        bridge.start()
+
+    assert bridge.is_running is False

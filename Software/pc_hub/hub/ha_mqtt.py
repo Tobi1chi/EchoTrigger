@@ -410,15 +410,19 @@ class HaMqttBridge:
 
     def _await_retained_reconcile_window(self) -> None:
         deadline = self._now_fn() + RECONCILE_TIMEOUT_SECONDS
+        saw_retained_message = False
         while self._now_fn() < deadline:
             with self._reconcile_lock:
                 last_seen = self._last_retained_message_at
             if last_seen is None:
-                time.sleep(RECONCILE_QUIET_PERIOD_SECONDS)
-                return
+                time.sleep(0.01)
+                continue
+            saw_retained_message = True
             if self._now_fn() - last_seen >= RECONCILE_QUIET_PERIOD_SECONDS:
                 return
             time.sleep(0.01)
+        if not saw_retained_message:
+            return
         raise RuntimeError("timed out while waiting for retained MQTT reconcile messages")
 
     def _on_message(self, _client: object, _userdata: object, message: Any) -> None:
