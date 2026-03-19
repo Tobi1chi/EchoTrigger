@@ -5,13 +5,15 @@ import logging
 import threading
 import time
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 from hub.config import HubConfig
 from hub.models import NodeState
 from hub.registry import NodeRegistry
 
 PUBLISH_INTERVAL_SECONDS = 5.0
+RECONCILE_TIMEOUT_SECONDS = 1.0
+RECONCILE_QUIET_PERIOD_SECONDS = 0.1
 
 
 class MqttClientProtocol(Protocol):
@@ -21,6 +23,7 @@ class MqttClientProtocol(Protocol):
     def loop_start(self) -> None: ...
     def loop_stop(self) -> None: ...
     def disconnect(self) -> None: ...
+    def subscribe(self, topic: str, qos: int = 0): ...
     def publish(self, topic: str, payload: str, qos: int = 0, retain: bool = False): ...
 
 
@@ -71,8 +74,11 @@ class HaMqttBridge:
         self._logger = logging.getLogger("pc_hub.ha_mqtt")
         self._known_nodes: dict[str, str] = {}
         self._published_node_online_topics: set[str] = set()
+        self._broker_node_online_topics: set[str] = set()
         self._hub_discovery_published = False
         self._running = False
+        self._reconcile_lock = threading.Lock()
+        self._last_retained_message_at: float | None = None
 
     @property
     def is_running(self) -> bool:
@@ -83,6 +89,9 @@ class HaMqttBridge:
             self._logger.info("Home Assistant MQTT bridge disabled")
             return
         self._stop_event.clear()
+        self._broker_node_online_topics.clear()
+        self._published_node_online_topics.clear()
+        self._last_retained_message_at = None
         self._running = True
         try:
             if self._client is None:
@@ -90,7 +99,10 @@ class HaMqttBridge:
             self._client.username_pw_set(self._config.username, self._config.password)
             self._client.will_set(self._hub_availability_topic, payload="offline", qos=1, retain=True)
             self._client.connect(self._config.host, self._config.port, keepalive=30)
+            self._register_callbacks()
             self._client.loop_start()
+            self._subscribe_reconcile_topics()
+            self._await_retained_reconcile_window()
             self._publish_initial_state()
             self._thread = threading.Thread(target=self._run, name="pc_hub_ha_mqtt", daemon=True)
             self._thread.start()
@@ -141,6 +153,7 @@ class HaMqttBridge:
     def _publish_initial_state(self) -> None:
         self._publish_hub_discovery_once()
         self._publish_state()
+        self._reconcile_broker_topics()
 
     def _publish_state(self) -> None:
         self._publish(self._hub_availability_topic, "online", retain=True)
@@ -373,9 +386,62 @@ class HaMqttBridge:
         except Exception:
             pass
         self._thread = None
+        self._last_retained_message_at = None
 
     def _node_online_topic(self, node_uuid: str) -> str:
         return f"{self._config.topic_prefix}/nodes/{node_uuid}/online"
+
+    def _node_online_subscription(self) -> str:
+        return f"{self._config.topic_prefix}/nodes/+/online"
+
+    def _register_callbacks(self) -> None:
+        assert self._client is not None
+        try:
+            setattr(self._client, "on_message", self._on_message)
+        except Exception:
+            self._logger.debug("MQTT client does not support on_message attribute assignment", exc_info=True)
+
+    def _subscribe_reconcile_topics(self) -> None:
+        assert self._client is not None
+        result = self._client.subscribe(self._node_online_subscription(), qos=1)
+        if isinstance(result, tuple) and result:
+            if int(result[0]) != 0:
+                raise RuntimeError(f"failed to subscribe to MQTT reconcile topic: rc={result[0]}")
+
+    def _await_retained_reconcile_window(self) -> None:
+        deadline = self._now_fn() + RECONCILE_TIMEOUT_SECONDS
+        while self._now_fn() < deadline:
+            with self._reconcile_lock:
+                last_seen = self._last_retained_message_at
+            if last_seen is None:
+                time.sleep(RECONCILE_QUIET_PERIOD_SECONDS)
+                return
+            if self._now_fn() - last_seen >= RECONCILE_QUIET_PERIOD_SECONDS:
+                return
+            time.sleep(0.01)
+        raise RuntimeError("timed out while waiting for retained MQTT reconcile messages")
+
+    def _on_message(self, _client: object, _userdata: object, message: Any) -> None:
+        topic = getattr(message, "topic", "")
+        retain = bool(getattr(message, "retain", False))
+        if not retain or not isinstance(topic, str):
+            return
+        if not self._matches_node_online_topic(topic):
+            return
+        with self._reconcile_lock:
+            self._broker_node_online_topics.add(topic)
+            self._last_retained_message_at = self._now_fn()
+
+    def _reconcile_broker_topics(self) -> None:
+        current_topics = {self._node_online_topic(node.node_uuid) for node in self._registry.list_nodes()}
+        with self._reconcile_lock:
+            stale_topics = self._broker_node_online_topics - current_topics
+        for topic in stale_topics:
+            self._publish(topic, "offline", retain=True)
+
+    def _matches_node_online_topic(self, topic: str) -> bool:
+        prefix = f"{self._config.topic_prefix}/nodes/"
+        return topic.startswith(prefix) and topic.endswith("/online")
 
 
 def _iso_timestamp(value: float) -> str:

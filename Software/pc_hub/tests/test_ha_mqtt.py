@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import time
 
+import hub.ha_mqtt as ha_mqtt_module
 from hub.ha_mqtt import HaMqttBridge, HaMqttBridgeConfig
 from hub.models import AudioFrame, NodeState
 from hub.registry import NodeRegistry
@@ -16,7 +18,9 @@ class _FakeClient:
         self.loop_started = False
         self.loop_stopped = False
         self.disconnected = False
+        self.subscriptions: list[tuple[str, int]] = []
         self.published: list[tuple[str, str, int, bool]] = []
+        self.on_message = None
 
     def username_pw_set(self, username: str | None, password: str | None = None) -> None:
         self.username = username
@@ -38,6 +42,10 @@ class _FakeClient:
     def disconnect(self) -> None:
         self.disconnected = True
 
+    def subscribe(self, topic: str, qos: int = 0):
+        self.subscriptions.append((topic, qos))
+        return (0, 1)
+
     def publish(self, topic: str, payload: str, qos: int = 0, retain: bool = False):
         self.published.append((topic, payload, qos, retain))
         return None
@@ -46,6 +54,26 @@ class _FakeClient:
 class _FailingClient(_FakeClient):
     def connect(self, host: str, port: int, keepalive: int = 60) -> int:
         raise RuntimeError("connect failed")
+
+
+class _RetainedClient(_FakeClient):
+    def __init__(self, retained_topics: list[str]) -> None:
+        super().__init__()
+        self.retained_topics = retained_topics
+
+    def subscribe(self, topic: str, qos: int = 0):
+        result = super().subscribe(topic, qos)
+        if self.on_message is not None:
+            for retained_topic in self.retained_topics:
+                message = type("Message", (), {"topic": retained_topic, "retain": True})()
+                self.on_message(self, None, message)
+        return result
+
+
+class _SubscribeFailingClient(_FakeClient):
+    def subscribe(self, topic: str, qos: int = 0):
+        self.subscriptions.append((topic, qos))
+        return (1, 1)
 
 
 class _RegistryStub:
@@ -297,3 +325,97 @@ def test_thread_failure_leaves_bridge_not_running() -> None:
         bridge._thread.join(timeout=1)
 
     assert bridge.is_running is False
+
+
+def test_start_reconciles_retained_online_topics_missing_from_registry(monkeypatch) -> None:
+    monkeypatch.setattr(ha_mqtt_module, "RECONCILE_QUIET_PERIOD_SECONDS", 0.0)
+    monkeypatch.setattr(ha_mqtt_module, "RECONCILE_TIMEOUT_SECONDS", 0.01)
+    registry = _RegistryStub([])
+    client = _RetainedClient(["mic_hub/nodes/esp32s3-stale/online"])
+    bridge = HaMqttBridge(
+        config=HaMqttBridgeConfig(
+            host="mqtt.local",
+            port=1883,
+            username="user",
+            password="pass",
+            client_id="pc-hub-test",
+            discovery_prefix="homeassistant",
+            topic_prefix="mic_hub",
+            node_offline_seconds=30,
+        ),
+        registry=registry,  # type: ignore[arg-type]
+        mqtt_client=client,
+        now_fn=time.monotonic,
+    )
+
+    bridge.start()
+    bridge.stop()
+
+    stale_payloads = [
+        (payload, retain)
+        for topic, payload, _qos, retain in client.published
+        if topic == "mic_hub/nodes/esp32s3-stale/online"
+    ]
+    assert ("offline", True) in stale_payloads
+
+
+def test_start_keeps_current_registry_node_online_when_broker_replays_same_topic(monkeypatch) -> None:
+    monkeypatch.setattr(ha_mqtt_module, "RECONCILE_QUIET_PERIOD_SECONDS", 0.0)
+    monkeypatch.setattr(ha_mqtt_module, "RECONCILE_TIMEOUT_SECONDS", 0.01)
+    registry = NodeRegistry()
+    _register_node(registry, last_seen=time.monotonic())
+    client = _RetainedClient(["mic_hub/nodes/esp32s3-abc/online"])
+    bridge = HaMqttBridge(
+        config=HaMqttBridgeConfig(
+            host="mqtt.local",
+            port=1883,
+            username="user",
+            password="pass",
+            client_id="pc-hub-test",
+            discovery_prefix="homeassistant",
+            topic_prefix="mic_hub",
+            node_offline_seconds=30,
+        ),
+        registry=registry,
+        mqtt_client=client,
+        now_fn=time.monotonic,
+    )
+
+    bridge.start()
+    bridge.stop()
+
+    online_payloads = [
+        payload
+        for topic, payload, _qos, _retain in client.published
+        if topic == "mic_hub/nodes/esp32s3-abc/online"
+    ]
+    assert online_payloads[0] == "online"
+    assert "offline" not in online_payloads[:-1]
+
+
+def test_subscribe_failure_aborts_bridge_start() -> None:
+    registry = NodeRegistry()
+    client = _SubscribeFailingClient()
+    bridge = HaMqttBridge(
+        config=HaMqttBridgeConfig(
+            host="mqtt.local",
+            port=1883,
+            username="user",
+            password="pass",
+            client_id="pc-hub-test",
+            discovery_prefix="homeassistant",
+            topic_prefix="mic_hub",
+            node_offline_seconds=30,
+        ),
+        registry=registry,
+        mqtt_client=client,
+    )
+
+    import pytest
+
+    with pytest.raises(RuntimeError, match="failed to subscribe"):
+        bridge.start()
+
+    assert bridge.is_running is False
+    assert client.loop_stopped is True
+    assert client.disconnected is True
