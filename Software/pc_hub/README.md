@@ -1,20 +1,10 @@
 # PC Audio Hub
 
-> UDP ingest, per-node rolling audio buffer, async STT jobs, a primary MCP entrypoint for AI agents, and a legacy HTTP compatibility API for the `ESP32-S3` microphone nodes.
+> UDP ingest, per-node rolling audio buffer, async STT jobs, MCP-first access, and a deprecated legacy HTTP compatibility layer.
 
-## What The Hub Does
+中文说明见：[README.zh-CN.md](README.zh-CN.md)
 
-The hub is the PC-side runtime that turns a live PCM stream into queryable short-term audio memory:
-
-- receives UDP packets from one or more nodes
-- tracks nodes by `node_uuid`
-- stores a rolling per-node ring buffer
-- extracts WAV clips by time range
-- submits async STT jobs against extracted clips
-- exposes an MCP server as the preferred AI-facing interface
-- publishes Home Assistant MQTT discovery plus aggregated node status
-
-## 🌊 Runtime Topology
+## Runtime Topology
 
 ```mermaid
 flowchart LR
@@ -24,55 +14,44 @@ flowchart LR
   ring --> ext["extractor.py"]
   runtime["runtime.py + services.py"] --> ext
   runtime --> jobs["jobs.py"]
-  legacy["legacy hub/api.py"] --> runtime
   mcp["mcp_adapter"] --> runtime
+  legacy["legacy hub/api.py"] --> runtime
   jobs --> worker["worker/api.py"]
   worker --> asr["Qwen3-ASR"]
 ```
 
-## Implemented v1
+## What It Does
 
-| Capability | Status |
-| --- | --- |
-| UDP ingest | Implemented |
-| Per-node ring buffer | Implemented |
-| HTTP MCP adapter | Implemented |
-| Legacy `/nodes` API | Implemented, deprecated |
-| Legacy `/query/audio` API | Implemented, deprecated |
-| Legacy async `/query/stt` job API | Implemented, deprecated |
-| Legacy `/jobs/<job_id>` API | Implemented, deprecated |
-| Local ASR worker | Implemented |
-| Home Assistant MQTT bridge | Implemented |
-| Video / vision pipeline integration | Not implemented |
+- receives UDP audio packets from one or more nodes
+- tracks nodes by `node_uuid`
+- stores recent audio in per-node rolling buffers
+- extracts WAV clips by `pc_receive_time`
+- submits async STT jobs to the local worker
+- exposes MCP as the preferred AI-facing interface
+- keeps a deprecated legacy HTTP API for compatibility and manual debugging
 
-## Directory Layout
+Recommended startup path:
 
-| Path | Purpose |
-| --- | --- |
-| `hub/` | UDP receiver, registry, extraction, runtime, legacy HTTP API |
-| `mcp_adapter/` | MCP server for AI agents |
-| `worker/` | local HTTP ASR worker |
-| `shared/` | WAV writing and shared constants |
+1. `python3 -m worker.main`
+2. `python3 -m mcp_adapter.main`
+
+The legacy HTTP API is optional and disabled by default.
 
 ## Install
-
-From this directory:
 
 ```sh
 python3 -m pip install -e .
 ```
 
-For test tooling:
+For tests:
 
 ```sh
 python3 -m pip install -e '.[test]'
 ```
 
-This installs the editable `pc-audio-hub` package and its declared dependencies.
-
 ## Configuration
 
-### Hub
+### Core runtime
 
 | Variable | Default |
 | --- | --- |
@@ -88,19 +67,6 @@ This installs the editable `pc-audio-hub` package and its declared dependencies.
 | `PC_HUB_MAX_QUERY_SECONDS` | `120` |
 | `PC_HUB_STT_JOB_QUEUE_SIZE` | `16` |
 | `PC_HUB_STT_JOB_TTL_SECONDS` | `900` |
-
-### Home Assistant MQTT
-
-| Variable | Default |
-| --- | --- |
-| `PC_HUB_MQTT_HOST` | disabled when empty |
-| `PC_HUB_MQTT_PORT` | `1883` |
-| `PC_HUB_MQTT_USERNAME` | unset |
-| `PC_HUB_MQTT_PASSWORD` | unset |
-| `PC_HUB_MQTT_CLIENT_ID` | `pc-audio-hub` |
-| `PC_HUB_HA_DISCOVERY_PREFIX` | `homeassistant` |
-| `PC_HUB_MQTT_TOPIC_PREFIX` | `mic_hub` |
-| `PC_HUB_NODE_OFFLINE_SECONDS` | `30` |
 
 ### MCP
 
@@ -123,89 +89,51 @@ This installs the editable `pc-audio-hub` package and its declared dependencies.
 | `PC_HUB_ASR_MAX_BATCH_SIZE` | `1` |
 | `PC_HUB_ASR_MAX_NEW_TOKENS` | `512` |
 
-## Recommended Local Settings
+### Home Assistant MQTT
+
+| Variable | Default |
+| --- | --- |
+| `PC_HUB_MQTT_HOST` | disabled when empty |
+| `PC_HUB_MQTT_PORT` | `1883` |
+| `PC_HUB_MQTT_USERNAME` | unset |
+| `PC_HUB_MQTT_PASSWORD` | unset |
+| `PC_HUB_MQTT_CLIENT_ID` | `pc-audio-hub` |
+| `PC_HUB_HA_DISCOVERY_PREFIX` | `homeassistant` |
+| `PC_HUB_MQTT_TOPIC_PREFIX` | `mic_hub` |
+| `PC_HUB_NODE_OFFLINE_SECONDS` | `30` |
+
+## Run
+
+### Recommended path
 
 ```sh
 export PC_HUB_ASR_MODEL=Qwen/Qwen3-ASR-0.6B
 export PC_HUB_ASR_LANGUAGE=zh
 export PC_HUB_ASR_DEVICE_MAP=mps
 export PC_HUB_ASR_DTYPE=float16
-export PC_HUB_ASR_MAX_BATCH_SIZE=1
-export PC_HUB_ASR_MAX_NEW_TOKENS=512
-```
-
-On Windows, `PC_HUB_ASR_DEVICE_MAP=auto` tries `cuda` first and falls back to `cpu` if CUDA is unavailable or model initialization fails.
-
-Notes:
-
-- first run downloads weights into `~/.cache/huggingface/hub`
-- `zh` and `en` are normalized internally to `Chinese` and `English`
-
-## 🚀 Run
-
-### Start the ASR worker
-
-```sh
-export PC_HUB_ASR_MODEL=Qwen/Qwen3-ASR-0.6B
-export PC_HUB_ASR_LANGUAGE=zh
-export PC_HUB_ASR_DEVICE_MAP=auto
-export PC_HUB_ASR_DTYPE=float32
 python3 -m worker.main
 ```
-
-### Start the MCP hub
 
 ```sh
 export PC_HUB_MCP_BIND_HOST=127.0.0.1
 export PC_HUB_MCP_PORT=8767
 export PC_HUB_MCP_PATH=/mcp
-export PC_HUB_MQTT_HOST=127.0.0.1
-export PC_HUB_MQTT_PORT=1883
 python3 -m mcp_adapter.main
 ```
 
-With MQTT enabled, the hub publishes Home Assistant discovery under `homeassistant/...` and hub-owned state topics under `mic_hub/...`.
+Preferred endpoint:
 
-The hub exposes one Home Assistant device and aggregates all node entities beneath it:
-
-- hub online
-- visible node count
-- online node count
-- last publish time
-- per-node online status
-- per-node `node_id`
-- per-node packet counters
-- per-node control buttons for `start streaming`, `stop streaming`, and `restart`
-
-Control entities publish directly to the existing node MQTT command topics:
-
-- `mic/<node_uuid>/cmd/streaming/set` with `ON` or `OFF`
-- `mic/<node_uuid>/cmd/restart`
-
-## Docker
-
-Build and run the worker plus MCP hub with Docker Compose:
-
-```sh
-docker compose up --build
+```text
+http://127.0.0.1:8767/mcp
 ```
 
-This publishes:
+MCP tools:
 
-- UDP ingest on `4000/udp`
-- legacy HTTP on `http://127.0.0.1:8765`
-- MCP on `http://127.0.0.1:8767/mcp`
+- `list_nodes`
+- `submit_stt_job`
+- `get_stt_job`
 
-Notes:
-
-- the Compose stack runs two containers: `worker` and `mcp_hub`
-- clip files are stored in the named volume `clips`
-- Hugging Face model cache is stored in the named volume `hf-cache`
-- the Compose worker requests `gpus: all` and defaults `PC_HUB_ASR_DEVICE_MAP=cuda`
-- if you want CPU-only inference, override `PC_HUB_ASR_DEVICE_MAP=cpu` and remove or override the GPU request
-- first startup can take a while because the ASR model may need to be downloaded into the cache volume
-
-### Start the legacy HTTP hub
+### Optional legacy path
 
 ```sh
 export PC_HUB_BIND_HOST=127.0.0.1
@@ -222,89 +150,35 @@ export PC_HUB_ENABLE_LEGACY_HTTP=1
 python3 -m hub.main
 ```
 
-## MCP Tools
-
-The preferred AI-facing interface is the MCP server at `http://127.0.0.1:8767/mcp`.
-
-It exposes these tools:
-
-- `list_nodes`
-- `submit_stt_job`
-- `get_stt_job`
-
-All query windows use `pc_receive_time`.
-
-## Legacy HTTP API
-
-The HTTP API remains available for compatibility, debugging, and manual verification. It is now deprecated and will be removed after the MCP path is stable.
-
-### `GET /nodes`
-
-Returns the currently seen nodes, keyed by `node_uuid`.
-
-### `POST /query/audio`
-
-```json
-{
-  "node_uuid": "esp32s3-a1b2c3d4e5f6",
-  "start_time": 1710000000.1,
-  "end_time": 1710000030.1
-}
-```
-
-### `POST /query/stt`
-
-Same request shape as `/query/audio`.
-
-The hub:
-
-1. validates the requested audio window
-2. extracts a temporary WAV clip
-3. enqueues an STT job
-4. returns a `job_id`
-
-### `GET /jobs/<job_id>`
-
-Returns the job status:
-
-- `queued`
-- `running`
-- `succeeded`
-- `failed`
-- `expired`
-
-When successful, the payload includes the clip path and ASR result.
-Completed jobs eventually transition to `expired`, and are later removed from the in-memory job table after an additional TTL window.
-
-## Tests
-
-Run the PC hub tests with:
+## Docker
 
 ```sh
-python3 -m pytest -q
+docker compose up --build
 ```
 
-## Timebase
+Published ports:
 
-The query timebase is:
+- `4000/udp`
+- `8765` for legacy HTTP
+- `8767` for MCP
 
-- `pc_receive_time`
+Notes:
 
-It is not the embedded packet timestamp.
+- the Compose stack runs `worker` and `mcp_hub`
+- the worker defaults to `gpus: all` and `PC_HUB_ASR_DEVICE_MAP=cuda`
+- on macOS, Docker Desktop does not expose Apple `mps`, so Compose is not the default Mac path
+- use `PC_HUB_ASR_DEVICE_MAP=cpu` if you want CPU-only inference in containers
 
-## ✅ Verified Behavior
+## More Detail
 
-This hub has already been validated in two useful ways:
+- [../../docs/verification.md](../../docs/verification.md)
+  Worker smoke tests, simulated uplink status, and legacy HTTP verification.
+- [../../docs/protocols.md](../../docs/protocols.md)
+  Timebase, legacy API contract, MQTT exposure, and wire-level integration notes.
 
-- direct worker transcription against local WAV input
-- full end-to-end simulated ESP32 UDP upload, followed by async STT job execution
+## Notes
 
-## Notes & Limits
-
-- `segments` are currently empty for `Qwen3-ASR`
-- this service is audio-only for now
-- first ASR request is slower because model load and cache warm-up dominate latency
-- clip files are temporary and are cleaned by TTL
-- `/query/stt` is asynchronous, but audio extraction itself still happens at submission time
-- query windows are bounded by `PC_HUB_MAX_QUERY_SECONDS`
-- AI agents should prefer MCP over the legacy HTTP query API
+- All query windows use `pc_receive_time`.
+- `segments` are currently empty for `Qwen3-ASR`.
+- Clip files are temporary and cleaned by TTL.
+- The service is audio-only for now.
