@@ -4,9 +4,23 @@ import platform
 import wave
 from dataclasses import dataclass
 
-import torch
-
 from worker.models import WorkerResponse
+
+try:
+    import torch
+except ModuleNotFoundError:
+    class _UnavailableCuda:
+        @staticmethod
+        def is_available() -> bool:
+            return False
+
+    class _UnavailableTorch:
+        cuda = _UnavailableCuda()
+
+        def __getattr__(self, name: str) -> object:
+            raise ModuleNotFoundError("torch is required for the local Qwen3 ASR backend")
+
+    torch = _UnavailableTorch()
 
 
 @dataclass(frozen=True)

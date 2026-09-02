@@ -4,20 +4,22 @@ services:
       context: .
       dockerfile: Dockerfile
     command: ["python", "-m", "worker.main"]
-    gpus: all
     environment:
       PC_HUB_WORKER_HOST: 0.0.0.0
       PC_HUB_WORKER_PORT: 8766
-      PC_HUB_ASR_MODEL: ${PC_HUB_ASR_MODEL:-Qwen/Qwen3-ASR-0.6B}
+      PC_HUB_ASR_PROVIDER: ${PC_HUB_ASR_PROVIDER:-bailian}
       PC_HUB_ASR_LANGUAGE: ${PC_HUB_ASR_LANGUAGE:-zh}
-      PC_HUB_ASR_DEVICE_MAP: ${PC_HUB_ASR_DEVICE_MAP:-cuda}
-      PC_HUB_ASR_DTYPE: ${PC_HUB_ASR_DTYPE:-float32}
-      PC_HUB_ASR_MAX_BATCH_SIZE: ${PC_HUB_ASR_MAX_BATCH_SIZE:-1}
-      PC_HUB_ASR_MAX_NEW_TOKENS: ${PC_HUB_ASR_MAX_NEW_TOKENS:-512}
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
+      PC_HUB_BAILIAN_API_KEY: ${PC_HUB_BAILIAN_API_KEY:-}
+      PC_HUB_BAILIAN_BASE_URL: ${PC_HUB_BAILIAN_BASE_URL:-}
+      PC_HUB_BAILIAN_WORKSPACE_ID: ${PC_HUB_BAILIAN_WORKSPACE_ID:-}
+      PC_HUB_BAILIAN_REGION: ${PC_HUB_BAILIAN_REGION:-cn-beijing}
+      PC_HUB_BAILIAN_MODEL: ${PC_HUB_BAILIAN_MODEL:-qwen3-asr-flash}
+      PC_HUB_BAILIAN_ENABLE_ITN: ${PC_HUB_BAILIAN_ENABLE_ITN:-0}
+      PC_HUB_BAILIAN_TIMEOUT_SECONDS: ${PC_HUB_BAILIAN_TIMEOUT_SECONDS:-60}
+      PC_HUB_BAILIAN_MAX_AUDIO_BYTES: ${PC_HUB_BAILIAN_MAX_AUDIO_BYTES:-7500000}
     ports:
       - "8766:8766"
-    volumes:
-      - hf-cache:/root/.cache/huggingface
     restart: unless-stopped
     healthcheck:
       test:
@@ -74,4 +76,3 @@ services:
 
 volumes:
   clips:
-  hf-cache:
