@@ -6,7 +6,7 @@
 
 ![ESP32-S3](https://img.shields.io/static/v1?label=MCU&message=ESP32-S3&color=1f6feb)
 ![Firmware](https://img.shields.io/static/v1?label=Firmware&message=ESP-IDF&color=222222)
-![ASR](https://img.shields.io/static/v1?label=ASR&message=Qwen3%20ASR%200.6B&color=0a7f5a)
+![ASR](https://img.shields.io/static/v1?label=ASR&message=Bailian%20Qwen%20ASR&color=0a7f5a)
 ![Audio](https://img.shields.io/static/v1?label=Audio&message=UDP%20PCM&color=b06d00)
 ![Control](https://img.shields.io/static/v1?label=Control&message=MQTT&color=8a3ffc)
 
@@ -18,7 +18,7 @@ flowchart LR
   esp -->|"UDP PCM"| hub["PC Audio Hub"]
   hub --> ring["Rolling Buffer"]
   ring --> jobs["Async STT Jobs"]
-  jobs --> asr["Qwen3-ASR Worker"]
+  jobs --> asr["Bailian Qwen ASR Worker"]
   mqtt["MQTT Control"] <-->|"status / commands"| esp
   mcp["MCP Client"] --> hub
 ```
@@ -28,7 +28,7 @@ flowchart LR
 - [Hardware/Mic-ESP32](Hardware/Mic-ESP32)
   ESP-IDF firmware for the microphone node.
 - [Software/pc_hub](Software/pc_hub)
-  PC-side UDP ingest, rolling buffer, MCP server, and local ASR worker.
+  PC-side UDP ingest, rolling buffer, MCP server, and cloud-first ASR worker.
 
 Today the system does this:
 
@@ -36,7 +36,7 @@ Today the system does this:
 - streams audio to the PC over UDP
 - tracks nodes by `node_uuid`
 - buffers recent audio on the PC
-- submits async STT jobs to `Qwen3-ASR`
+- submits async STT jobs to Alibaba Cloud Model Studio `qwen3-asr-flash` by default
 - exposes MCP as the preferred AI-facing interface
 
 ## Fastest Path
@@ -64,23 +64,22 @@ The recommended runtime path is:
 
 Minimal example:
 
-```sh
+```powershell
 cd Software/pc_hub
-python3 -m pip install -e .
+uv sync
 
-export PC_HUB_ASR_MODEL=Qwen/Qwen3-ASR-0.6B
-export PC_HUB_ASR_LANGUAGE=zh
-export PC_HUB_ASR_DEVICE_MAP=mps
-export PC_HUB_ASR_DTYPE=float16
-python3 -m worker.main
+$env:DASHSCOPE_API_KEY="your-api-key"
+$env:PC_HUB_ASR_PROVIDER="bailian"
+$env:PC_HUB_ASR_LANGUAGE="zh"
+uv run python -m worker.main
 ```
 
-```sh
+```powershell
 cd Software/pc_hub
-export PC_HUB_MCP_BIND_HOST=127.0.0.1
-export PC_HUB_MCP_PORT=8767
-export PC_HUB_MCP_PATH=/mcp
-python3 -m mcp_adapter.main
+$env:PC_HUB_MCP_BIND_HOST="127.0.0.1"
+$env:PC_HUB_MCP_PORT="8767"
+$env:PC_HUB_MCP_PATH="/mcp"
+uv run python -m mcp_adapter.main
 ```
 
 MCP endpoint:

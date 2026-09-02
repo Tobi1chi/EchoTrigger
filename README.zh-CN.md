@@ -6,7 +6,7 @@ English version: [README.md](README.md)
 
 ![ESP32-S3](https://img.shields.io/static/v1?label=MCU&message=ESP32-S3&color=1f6feb)
 ![Firmware](https://img.shields.io/static/v1?label=Firmware&message=ESP-IDF&color=222222)
-![ASR](https://img.shields.io/static/v1?label=ASR&message=Qwen3%20ASR%200.6B&color=0a7f5a)
+![ASR](https://img.shields.io/static/v1?label=ASR&message=Bailian%20Qwen%20ASR&color=0a7f5a)
 ![Audio](https://img.shields.io/static/v1?label=Audio&message=UDP%20PCM&color=b06d00)
 ![Control](https://img.shields.io/static/v1?label=Control&message=MQTT&color=8a3ffc)
 
@@ -18,7 +18,7 @@ flowchart LR
   esp -->|"UDP PCM"| hub["PC Audio Hub"]
   hub --> ring["滚动缓存"]
   ring --> jobs["异步 STT 任务"]
-  jobs --> asr["Qwen3-ASR Worker"]
+  jobs --> asr["百炼 Qwen ASR Worker"]
   mqtt["MQTT 控制面"] <-->|"状态 / 命令"| esp
   mcp["MCP 客户端"] --> hub
 ```
@@ -28,7 +28,7 @@ flowchart LR
 - [Hardware/Mic-ESP32](Hardware/Mic-ESP32)
   麦克风节点的 ESP-IDF 固件。
 - [Software/pc_hub](Software/pc_hub)
-  PC 侧 UDP 接收、滚动缓冲、MCP 服务和本地 ASR worker。
+  PC 侧 UDP 接收、滚动缓冲、MCP 服务和云端优先 ASR worker。
 
 当前系统能力：
 
@@ -36,7 +36,7 @@ flowchart LR
 - 通过 UDP 把音频发到 PC
 - 通过 `node_uuid` 跟踪节点
 - 在 PC 上缓存最近一段时间的音频
-- 把 STT 任务异步提交给 `Qwen3-ASR`
+- 默认把 STT 任务异步提交给阿里云百炼 `qwen3-asr-flash`
 - 默认通过 MCP 提供 AI 访问入口
 
 ## 最快跑通路径
@@ -64,23 +64,22 @@ flowchart LR
 
 最小示例：
 
-```sh
+```powershell
 cd Software/pc_hub
-python3 -m pip install -e .
+uv sync
 
-export PC_HUB_ASR_MODEL=Qwen/Qwen3-ASR-0.6B
-export PC_HUB_ASR_LANGUAGE=zh
-export PC_HUB_ASR_DEVICE_MAP=mps
-export PC_HUB_ASR_DTYPE=float16
-python3 -m worker.main
+$env:DASHSCOPE_API_KEY="your-api-key"
+$env:PC_HUB_ASR_PROVIDER="bailian"
+$env:PC_HUB_ASR_LANGUAGE="zh"
+uv run python -m worker.main
 ```
 
-```sh
+```powershell
 cd Software/pc_hub
-export PC_HUB_MCP_BIND_HOST=127.0.0.1
-export PC_HUB_MCP_PORT=8767
-export PC_HUB_MCP_PATH=/mcp
-python3 -m mcp_adapter.main
+$env:PC_HUB_MCP_BIND_HOST="127.0.0.1"
+$env:PC_HUB_MCP_PORT="8767"
+$env:PC_HUB_MCP_PATH="/mcp"
+uv run python -m mcp_adapter.main
 ```
 
 MCP 端点：

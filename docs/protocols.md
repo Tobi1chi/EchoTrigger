@@ -66,4 +66,4 @@ Successful STT jobs may return:
 - job status
 - clip path
 - ASR text
-- empty `segments` for current `Qwen3-ASR` integration
+- empty `segments` for current ASR integration

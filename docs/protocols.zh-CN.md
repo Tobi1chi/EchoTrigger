@@ -61,7 +61,7 @@ legacy HTTP API 已废弃，而且默认关闭；启用后会暴露：
 - `POST /query/stt`
 - `GET /jobs/<job_id>`
 
-当前 `Qwen3-ASR` 成功任务可能返回：
+当前 ASR 成功任务可能返回：
 
 - 任务状态
 - clip 路径

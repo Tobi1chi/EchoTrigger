@@ -17,7 +17,7 @@ flowchart LR
   mcp["mcp_adapter"] --> runtime
   legacy["legacy hub/api.py"] --> runtime
   jobs --> worker["worker/api.py"]
-  worker --> asr["Qwen3-ASR"]
+  worker --> asr["Bailian Qwen ASR"]
 ```
 
 ## What It Does
@@ -26,7 +26,7 @@ flowchart LR
 - tracks nodes by `node_uuid`
 - stores recent audio in per-node rolling buffers
 - extracts WAV clips by `pc_receive_time`
-- submits async STT jobs to the local worker
+- submits async STT jobs to the worker, which uses Alibaba Cloud Model Studio by default
 - exposes MCP as the preferred AI-facing interface
 - keeps a deprecated legacy HTTP API for compatibility and manual debugging
 
@@ -39,14 +39,14 @@ The legacy HTTP API is optional and disabled by default.
 
 ## Install
 
-```sh
-python3 -m pip install -e .
+```powershell
+uv sync
 ```
 
 For tests:
 
-```sh
-python3 -m pip install -e '.[test]'
+```powershell
+uv sync --extra test
 ```
 
 ## Configuration
@@ -82,12 +82,16 @@ python3 -m pip install -e '.[test]'
 | --- | --- |
 | `PC_HUB_WORKER_HOST` | `127.0.0.1` |
 | `PC_HUB_WORKER_PORT` | `8766` |
-| `PC_HUB_ASR_MODEL` | `Qwen/Qwen3-ASR-0.6B` |
+| `PC_HUB_ASR_PROVIDER` | `bailian` |
 | `PC_HUB_ASR_LANGUAGE` | `zh` |
-| `PC_HUB_ASR_DEVICE_MAP` | `mps` on Apple Silicon, `auto` on Windows, otherwise `cpu` |
-| `PC_HUB_ASR_DTYPE` | `float16` on Apple Silicon, otherwise `float32` |
-| `PC_HUB_ASR_MAX_BATCH_SIZE` | `1` |
-| `PC_HUB_ASR_MAX_NEW_TOKENS` | `512` |
+| `PC_HUB_BAILIAN_API_KEY` | unset; falls back to `DASHSCOPE_API_KEY` |
+| `PC_HUB_BAILIAN_BASE_URL` | unset; uses a workspace domain when configured, otherwise the legacy DashScope-compatible domain |
+| `PC_HUB_BAILIAN_WORKSPACE_ID` | unset |
+| `PC_HUB_BAILIAN_REGION` | `cn-beijing` |
+| `PC_HUB_BAILIAN_MODEL` | `qwen3-asr-flash` |
+| `PC_HUB_BAILIAN_ENABLE_ITN` | `0` |
+| `PC_HUB_BAILIAN_TIMEOUT_SECONDS` | `60` |
+| `PC_HUB_BAILIAN_MAX_AUDIO_BYTES` | `7500000` |
 
 ### Home Assistant MQTT
 
@@ -106,19 +110,25 @@ python3 -m pip install -e '.[test]'
 
 ### Recommended path
 
-```sh
-export PC_HUB_ASR_MODEL=Qwen/Qwen3-ASR-0.6B
-export PC_HUB_ASR_LANGUAGE=zh
-export PC_HUB_ASR_DEVICE_MAP=mps
-export PC_HUB_ASR_DTYPE=float16
-python3 -m worker.main
+```powershell
+$env:DASHSCOPE_API_KEY="your-api-key"
+$env:PC_HUB_ASR_PROVIDER="bailian"
+$env:PC_HUB_ASR_LANGUAGE="zh"
+uv run python -m worker.main
 ```
 
-```sh
-export PC_HUB_MCP_BIND_HOST=127.0.0.1
-export PC_HUB_MCP_PORT=8767
-export PC_HUB_MCP_PATH=/mcp
-python3 -m mcp_adapter.main
+To use the Model Studio workspace-specific domain recommended by Alibaba Cloud, set `PC_HUB_BAILIAN_WORKSPACE_ID`:
+
+```powershell
+$env:PC_HUB_BAILIAN_WORKSPACE_ID="your-workspace-id"
+$env:PC_HUB_BAILIAN_REGION="cn-beijing"
+```
+
+```powershell
+$env:PC_HUB_MCP_BIND_HOST="127.0.0.1"
+$env:PC_HUB_MCP_PORT="8767"
+$env:PC_HUB_MCP_PATH="/mcp"
+uv run python -m mcp_adapter.main
 ```
 
 Preferred endpoint:
@@ -135,19 +145,32 @@ MCP tools:
 
 ### Optional legacy path
 
-```sh
-export PC_HUB_BIND_HOST=127.0.0.1
-export PC_HUB_HTTP_PORT=8765
-export PC_HUB_UDP_HOST=0.0.0.0
-export PC_HUB_UDP_PORT=4000
-export PC_HUB_RING_MINUTES=10
-export PC_HUB_WORKER_URL=http://127.0.0.1:8766/transcribe
-export PC_HUB_CLIP_TTL_SECONDS=900
-export PC_HUB_MAX_QUERY_SECONDS=120
-export PC_HUB_STT_JOB_QUEUE_SIZE=16
-export PC_HUB_STT_JOB_TTL_SECONDS=900
-export PC_HUB_ENABLE_LEGACY_HTTP=1
-python3 -m hub.main
+```powershell
+$env:PC_HUB_BIND_HOST="127.0.0.1"
+$env:PC_HUB_HTTP_PORT="8765"
+$env:PC_HUB_UDP_HOST="0.0.0.0"
+$env:PC_HUB_UDP_PORT="4000"
+$env:PC_HUB_RING_MINUTES="10"
+$env:PC_HUB_WORKER_URL="http://127.0.0.1:8766/transcribe"
+$env:PC_HUB_CLIP_TTL_SECONDS="900"
+$env:PC_HUB_MAX_QUERY_SECONDS="120"
+$env:PC_HUB_STT_JOB_QUEUE_SIZE="16"
+$env:PC_HUB_STT_JOB_TTL_SECONDS="900"
+$env:PC_HUB_ENABLE_LEGACY_HTTP="1"
+uv run python -m hub.main
+```
+
+### Optional local ASR
+
+The local `Qwen3-ASR` backend remains available as an explicit opt-in path. Default installs and Docker runs no longer require `torch` or a compatible GPU. To use local inference:
+
+```powershell
+uv sync --extra local-asr
+$env:PC_HUB_ASR_PROVIDER="local-qwen3"
+$env:PC_HUB_ASR_MODEL="Qwen/Qwen3-ASR-0.6B"
+$env:PC_HUB_ASR_DEVICE_MAP="auto"
+$env:PC_HUB_ASR_DTYPE="float32"
+uv run python -m worker.main
 ```
 
 ## Docker
@@ -165,9 +188,9 @@ Published ports:
 Notes:
 
 - the Compose stack runs `worker` and `mcp_hub`
-- the worker defaults to `gpus: all` and `PC_HUB_ASR_DEVICE_MAP=cuda`
-- on macOS, Docker Desktop does not expose Apple `mps`, so Compose is not the default Mac path
-- use `PC_HUB_ASR_DEVICE_MAP=cpu` if you want CPU-only inference in containers
+- the worker defaults to Bailian cloud ASR, so pass `DASHSCOPE_API_KEY` or `PC_HUB_BAILIAN_API_KEY`
+- set `PC_HUB_BAILIAN_WORKSPACE_ID` to use the Model Studio workspace-specific domain
+- Compose no longer requests a GPU by default; for in-container local inference, install the `local-asr` extra and adjust the image explicitly
 
 ## More Detail
 
@@ -179,6 +202,6 @@ Notes:
 ## Notes
 
 - All query windows use `pc_receive_time`.
-- `segments` are currently empty for `Qwen3-ASR`.
+- `segments` are currently empty for Bailian OpenAI-compatible ASR.
 - Clip files are temporary and cleaned by TTL.
 - The service is audio-only for now.

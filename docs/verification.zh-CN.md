@@ -2,17 +2,30 @@
 
 ## Worker 冒烟测试
 
-```sh
-curl -X POST http://127.0.0.1:8766/transcribe \
-  -H 'Content-Type: application/json' \
-  -d '{
+```powershell
+$body = @{
+  job_id = "manual-test"
+  audio_path = "./path/to/audio.wav"
+  node_uuid = "manual-node"
+  node_id = "manual-node"
+  start_time = 0
+  end_time = 1
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8766/transcribe" -ContentType "application/json" -Body $body
+```
+
+JSON payload:
+
+```json
+{
     "job_id":"manual-test",
     "audio_path":"./path/to/audio.wav",
     "node_uuid":"manual-node",
     "node_id":"manual-node",
     "start_time":0,
     "end_time":1
-  }'
+}
 ```
 
 ## MCP 运行检查
@@ -33,31 +46,41 @@ curl -X POST http://127.0.0.1:8766/transcribe \
 
 使用这些端点前，需要显式启用 legacy API：
 
-```sh
-export PC_HUB_ENABLE_LEGACY_HTTP=1
-python3 -m hub.main
+```powershell
+$env:PC_HUB_ENABLE_LEGACY_HTTP="1"
+uv run python -m hub.main
 ```
 
 然后验证：
 
-```sh
-curl http://127.0.0.1:8765/nodes
+```powershell
+Invoke-RestMethod -Uri "http://127.0.0.1:8765/nodes"
 ```
 
-```sh
-curl -X POST http://127.0.0.1:8765/query/stt \
-  -H 'Content-Type: application/json' \
-  -d '{
+```powershell
+$body = @{
+  node_uuid = "esp32s3-xxxxxxxxxxxx"
+  start_time = 1710000000.1
+  end_time = 1710000030.1
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8765/query/stt" -ContentType "application/json" -Body $body
+```
+
+JSON payload:
+
+```json
+{
     "node_uuid":"esp32s3-xxxxxxxxxxxx",
     "start_time":1710000000.1,
     "end_time":1710000030.1
-  }'
+}
 ```
 
 轮询返回任务：
 
-```sh
-curl http://127.0.0.1:8765/jobs/<job_id>
+```powershell
+Invoke-RestMethod -Uri "http://127.0.0.1:8765/jobs/<job_id>"
 ```
 
 ## 模拟上行验证状态
@@ -74,5 +97,5 @@ curl http://127.0.0.1:8765/jobs/<job_id>
 已验证链路：
 
 ```text
-音频文件 -> 模拟 UDP 包 -> pc_hub -> ring buffer -> WAV 提取 -> Qwen3-ASR -> 文本
+音频文件 -> 模拟 UDP 包 -> pc_hub -> ring buffer -> WAV 提取 -> ASR worker -> 文本
 ```

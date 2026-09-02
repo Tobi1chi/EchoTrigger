@@ -2,17 +2,30 @@
 
 ## Worker Smoke Test
 
-```sh
-curl -X POST http://127.0.0.1:8766/transcribe \
-  -H 'Content-Type: application/json' \
-  -d '{
+```powershell
+$body = @{
+  job_id = "manual-test"
+  audio_path = "./path/to/audio.wav"
+  node_uuid = "manual-node"
+  node_id = "manual-node"
+  start_time = 0
+  end_time = 1
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8766/transcribe" -ContentType "application/json" -Body $body
+```
+
+JSON payload:
+
+```json
+{
     "job_id":"manual-test",
     "audio_path":"./path/to/audio.wav",
     "node_uuid":"manual-node",
     "node_id":"manual-node",
     "start_time":0,
     "end_time":1
-  }'
+}
 ```
 
 ## MCP Runtime Check
@@ -33,31 +46,41 @@ Primary MCP tools:
 
 Enable the legacy API explicitly before using these endpoints:
 
-```sh
-export PC_HUB_ENABLE_LEGACY_HTTP=1
-python3 -m hub.main
+```powershell
+$env:PC_HUB_ENABLE_LEGACY_HTTP="1"
+uv run python -m hub.main
 ```
 
 Then validate:
 
-```sh
-curl http://127.0.0.1:8765/nodes
+```powershell
+Invoke-RestMethod -Uri "http://127.0.0.1:8765/nodes"
 ```
 
-```sh
-curl -X POST http://127.0.0.1:8765/query/stt \
-  -H 'Content-Type: application/json' \
-  -d '{
+```powershell
+$body = @{
+  node_uuid = "esp32s3-xxxxxxxxxxxx"
+  start_time = 1710000000.1
+  end_time = 1710000030.1
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8765/query/stt" -ContentType "application/json" -Body $body
+```
+
+JSON payload:
+
+```json
+{
     "node_uuid":"esp32s3-xxxxxxxxxxxx",
     "start_time":1710000000.1,
     "end_time":1710000030.1
-  }'
+}
 ```
 
 Poll the returned job:
 
-```sh
-curl http://127.0.0.1:8765/jobs/<job_id>
+```powershell
+Invoke-RestMethod -Uri "http://127.0.0.1:8765/jobs/<job_id>"
 ```
 
 ## Simulated Uplink Status
@@ -74,5 +97,5 @@ This repository has already been validated with a simulated `ESP32` uplink:
 Verified chain:
 
 ```text
-audio file -> simulated UDP packets -> pc_hub -> ring buffer -> WAV extraction -> Qwen3-ASR -> text
+audio file -> simulated UDP packets -> pc_hub -> ring buffer -> WAV extraction -> ASR worker -> text
 ```

@@ -17,7 +17,7 @@ flowchart LR
   mcp["mcp_adapter"] --> runtime
   legacy["legacy hub/api.py"] --> runtime
   jobs --> worker["worker/api.py"]
-  worker --> asr["Qwen3-ASR"]
+  worker --> asr["百炼 Qwen ASR"]
 ```
 
 ## 它负责什么
@@ -26,7 +26,7 @@ flowchart LR
 - 通过 `node_uuid` 跟踪节点
 - 为每个节点维护滚动音频缓冲
 - 按 `pc_receive_time` 提取 WAV 片段
-- 把异步 STT 任务提交给本地 worker
+- 把异步 STT 任务提交给 worker，默认由阿里云百炼完成 ASR
 - 默认通过 MCP 暴露 AI 访问接口
 - 保留一个已废弃的 legacy HTTP API 用于兼容和手动调试
 
@@ -39,14 +39,14 @@ legacy HTTP 是可选路径，而且默认关闭。
 
 ## 安装
 
-```sh
-python3 -m pip install -e .
+```powershell
+uv sync
 ```
 
 如需测试依赖：
 
-```sh
-python3 -m pip install -e '.[test]'
+```powershell
+uv sync --extra test
 ```
 
 ## 配置
@@ -82,12 +82,16 @@ python3 -m pip install -e '.[test]'
 | --- | --- |
 | `PC_HUB_WORKER_HOST` | `127.0.0.1` |
 | `PC_HUB_WORKER_PORT` | `8766` |
-| `PC_HUB_ASR_MODEL` | `Qwen/Qwen3-ASR-0.6B` |
+| `PC_HUB_ASR_PROVIDER` | `bailian` |
 | `PC_HUB_ASR_LANGUAGE` | `zh` |
-| `PC_HUB_ASR_DEVICE_MAP` | Apple Silicon 上为 `mps`，Windows 上为 `auto`，其他平台为 `cpu` |
-| `PC_HUB_ASR_DTYPE` | Apple Silicon 上为 `float16`，否则为 `float32` |
-| `PC_HUB_ASR_MAX_BATCH_SIZE` | `1` |
-| `PC_HUB_ASR_MAX_NEW_TOKENS` | `512` |
+| `PC_HUB_BAILIAN_API_KEY` | 未设置，未设置时回退到 `DASHSCOPE_API_KEY` |
+| `PC_HUB_BAILIAN_BASE_URL` | 未设置时自动使用业务空间域名或旧版 DashScope 兼容域名 |
+| `PC_HUB_BAILIAN_WORKSPACE_ID` | 未设置 |
+| `PC_HUB_BAILIAN_REGION` | `cn-beijing` |
+| `PC_HUB_BAILIAN_MODEL` | `qwen3-asr-flash` |
+| `PC_HUB_BAILIAN_ENABLE_ITN` | `0` |
+| `PC_HUB_BAILIAN_TIMEOUT_SECONDS` | `60` |
+| `PC_HUB_BAILIAN_MAX_AUDIO_BYTES` | `7500000` |
 
 ### Home Assistant MQTT
 
@@ -106,19 +110,25 @@ python3 -m pip install -e '.[test]'
 
 ### 推荐路径
 
-```sh
-export PC_HUB_ASR_MODEL=Qwen/Qwen3-ASR-0.6B
-export PC_HUB_ASR_LANGUAGE=zh
-export PC_HUB_ASR_DEVICE_MAP=mps
-export PC_HUB_ASR_DTYPE=float16
-python3 -m worker.main
+```powershell
+$env:DASHSCOPE_API_KEY="your-api-key"
+$env:PC_HUB_ASR_PROVIDER="bailian"
+$env:PC_HUB_ASR_LANGUAGE="zh"
+uv run python -m worker.main
 ```
 
-```sh
-export PC_HUB_MCP_BIND_HOST=127.0.0.1
-export PC_HUB_MCP_PORT=8767
-export PC_HUB_MCP_PATH=/mcp
-python3 -m mcp_adapter.main
+如果你想使用百炼推荐的业务空间专属域名，设置 `PC_HUB_BAILIAN_WORKSPACE_ID` 即可：
+
+```powershell
+$env:PC_HUB_BAILIAN_WORKSPACE_ID="your-workspace-id"
+$env:PC_HUB_BAILIAN_REGION="cn-beijing"
+```
+
+```powershell
+$env:PC_HUB_MCP_BIND_HOST="127.0.0.1"
+$env:PC_HUB_MCP_PORT="8767"
+$env:PC_HUB_MCP_PATH="/mcp"
+uv run python -m mcp_adapter.main
 ```
 
 推荐入口：
@@ -135,19 +145,32 @@ http://127.0.0.1:8767/mcp
 
 ### 可选 legacy 路径
 
-```sh
-export PC_HUB_BIND_HOST=127.0.0.1
-export PC_HUB_HTTP_PORT=8765
-export PC_HUB_UDP_HOST=0.0.0.0
-export PC_HUB_UDP_PORT=4000
-export PC_HUB_RING_MINUTES=10
-export PC_HUB_WORKER_URL=http://127.0.0.1:8766/transcribe
-export PC_HUB_CLIP_TTL_SECONDS=900
-export PC_HUB_MAX_QUERY_SECONDS=120
-export PC_HUB_STT_JOB_QUEUE_SIZE=16
-export PC_HUB_STT_JOB_TTL_SECONDS=900
-export PC_HUB_ENABLE_LEGACY_HTTP=1
-python3 -m hub.main
+```powershell
+$env:PC_HUB_BIND_HOST="127.0.0.1"
+$env:PC_HUB_HTTP_PORT="8765"
+$env:PC_HUB_UDP_HOST="0.0.0.0"
+$env:PC_HUB_UDP_PORT="4000"
+$env:PC_HUB_RING_MINUTES="10"
+$env:PC_HUB_WORKER_URL="http://127.0.0.1:8766/transcribe"
+$env:PC_HUB_CLIP_TTL_SECONDS="900"
+$env:PC_HUB_MAX_QUERY_SECONDS="120"
+$env:PC_HUB_STT_JOB_QUEUE_SIZE="16"
+$env:PC_HUB_STT_JOB_TTL_SECONDS="900"
+$env:PC_HUB_ENABLE_LEGACY_HTTP="1"
+uv run python -m hub.main
+```
+
+### 可选本地 ASR
+
+本地 `Qwen3-ASR` 后端保留为显式选项，默认安装和 Docker 路径不再依赖显卡或 `torch`。需要本地推理时：
+
+```powershell
+uv sync --extra local-asr
+$env:PC_HUB_ASR_PROVIDER="local-qwen3"
+$env:PC_HUB_ASR_MODEL="Qwen/Qwen3-ASR-0.6B"
+$env:PC_HUB_ASR_DEVICE_MAP="auto"
+$env:PC_HUB_ASR_DTYPE="float32"
+uv run python -m worker.main
 ```
 
 ## Docker
@@ -165,9 +188,9 @@ docker compose up --build
 说明：
 
 - Compose 会启动 `worker` 和 `mcp_hub`
-- `worker` 默认申请 `gpus: all`，并使用 `PC_HUB_ASR_DEVICE_MAP=cuda`
-- 在 macOS 上，Docker Desktop 不会把 Apple `mps` 暴露给容器，因此 Compose 不是 Mac 默认路径
-- 如果你要容器内纯 CPU 推理，请使用 `PC_HUB_ASR_DEVICE_MAP=cpu`
+- `worker` 默认使用百炼云端 ASR，需要传入 `DASHSCOPE_API_KEY` 或 `PC_HUB_BAILIAN_API_KEY`
+- 设置 `PC_HUB_BAILIAN_WORKSPACE_ID` 后，worker 会使用百炼推荐的业务空间专属域名
+- Compose 默认不再申请 GPU；如需容器内本地推理，请显式安装 `local-asr` 依赖并调整镜像
 
 ## 继续阅读
 
@@ -179,6 +202,6 @@ docker compose up --build
 ## 备注
 
 - 所有查询窗口都使用 `pc_receive_time`。
-- `Qwen3-ASR` 当前返回的 `segments` 为空。
+- 百炼 OpenAI 兼容 ASR 当前返回的 `segments` 为空。
 - clip 文件是临时产物，会按 TTL 清理。
 - 当前服务仍然只处理音频。
