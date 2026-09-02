@@ -1,10 +1,10 @@
 # Event-Triggered Audio Replay Agent
 
-> A local-first sensing stack built around `ESP32-S3`, UDP audio uplink, short-horizon replay, and PC-side ASR.
+> An event-triggered replay stack for replaceable audio nodes, connected by a stable uplink contract to PC-side buffering and ASR.
 
 中文说明见：[README.zh-CN.md](README.zh-CN.md)
 
-![ESP32-S3](https://img.shields.io/static/v1?label=MCU&message=ESP32-S3&color=1f6feb)
+![Node Contract](https://img.shields.io/static/v1?label=Node&message=Audio%20Uplink%20Contract&color=1f6feb)
 ![Firmware](https://img.shields.io/static/v1?label=Firmware&message=ESP-IDF&color=222222)
 ![ASR](https://img.shields.io/static/v1?label=ASR&message=Bailian%20Qwen%20ASR&color=0a7f5a)
 ![Audio](https://img.shields.io/static/v1?label=Audio&message=UDP%20PCM&color=b06d00)
@@ -12,28 +12,47 @@
 
 ## Architecture
 
+### Overall
+
 ```mermaid
 flowchart LR
-  mic["I2S Mic"] --> esp["ESP32-S3 Node"]
-  esp -->|"UDP PCM"| hub["PC Audio Hub"]
+  node["Audio Uplink Node<br/>any hardware implementing the contract"] -->|"UDP PCM<br/>node_uuid / node_id / sample metadata"| hub["PC Audio Hub"]
+  mqtt["Control Plane<br/>MQTT-compatible topics"] <-->|"status / commands"| node
   hub --> ring["Rolling Buffer"]
   ring --> jobs["Async STT Jobs"]
-  jobs --> asr["Bailian Qwen ASR Worker"]
-  mqtt["MQTT Control"] <-->|"status / commands"| esp
+  jobs --> asr["ASR Worker<br/>Bailian Qwen ASR by default"]
   mcp["MCP Client"] --> hub
 ```
+
+This diagram shows the system contract: the software side expects an upstream node that can send protocol-compatible audio packets and expose a basic status/control plane. It does not require that node to be an `ESP32-S3`.
+
+### Reference Hardware Architecture
+
+```mermaid
+flowchart LR
+  mic["I2S Microphone<br/>INMP441"] --> capture["Capture<br/>16 kHz / 16-bit / mono"]
+  capture --> packetizer["Packetizer<br/>20 ms PCM frames"]
+  identity["ESP32-S3 STA MAC"] --> uuid["node_uuid"]
+  uuid --> packetizer
+  packetizer --> udp["UDP Uplink<br/>contract packet format"]
+  cfg["Runtime Config<br/>Wi-Fi / MQTT / UDP / node_id"] --> udp
+  cfg --> mqtt_hw["MQTT Telemetry and Control"]
+  setup["AP/STA Setup Page"] --> cfg
+```
+
+The [Hardware/Mic-ESP32](Hardware/Mic-ESP32) firmware is one reference implementation of that contract, not the only hardware assumption of the PC hub.
 
 ## What This Repo Contains
 
 - [Hardware/Mic-ESP32](Hardware/Mic-ESP32)
-  ESP-IDF firmware for the microphone node.
+  reference `ESP32-S3` firmware for a microphone node.
 - [Software/pc_hub](Software/pc_hub)
   PC-side UDP ingest, rolling buffer, MCP server, and cloud-first ASR worker.
 
 Today the system does this:
 
-- captures `16 kHz / 16-bit / mono PCM` on `ESP32-S3`
-- streams audio to the PC over UDP
+- ingests audio nodes through a stable UDP PCM contract
+- captures `16 kHz / 16-bit / mono PCM` on `ESP32-S3` in the reference firmware
 - tracks nodes by `node_uuid`
 - buffers recent audio on the PC
 - submits async STT jobs to Alibaba Cloud Model Studio `qwen3-asr-flash` by default
@@ -103,7 +122,7 @@ Legacy HTTP remains available for compatibility and debugging, but it is optiona
 
 ## Notes
 
-- `node_uuid` is derived from the ESP32-S3 STA MAC and is the stable backend key.
+- `node_uuid` is the stable backend key; the current reference firmware derives it from the ESP32-S3 STA MAC.
 - `node_id` is the human-readable label configured locally.
 - Query windows use `pc_receive_time`, not the embedded packet timestamp.
 - The project is audio-first right now; video ingestion is future work.

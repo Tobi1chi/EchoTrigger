@@ -3,7 +3,7 @@
 ## 设备身份
 
 - `node_uuid`
-  从 ESP32-S3 的 STA MAC 派生，是稳定的后端与 MQTT 主键
+  稳定的后端与 MQTT 主键。当前 `ESP32-S3` 参考固件从 STA MAC 派生它，其他硬件实现只需要保证它在同一物理节点上稳定
 - `node_id`
   本地配置的人类可读名称
 
@@ -17,7 +17,7 @@ MQTT topics 使用 `mic/<node_uuid>/...`，不是 `mic/<node_id>/...`。
 - 包时长：`20 ms`
 - 传输方式：`UDP`
 
-数据包格式定义在 `Hardware/Mic-ESP32/main/audio_protocol.h`，包含：
+参考数据包格式定义在 `Hardware/Mic-ESP32/main/audio_protocol.h`。其他硬件实现需要发送兼容字段：
 
 - `node_uuid`
 - `node_id`

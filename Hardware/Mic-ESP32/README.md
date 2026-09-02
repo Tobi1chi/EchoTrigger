@@ -4,6 +4,18 @@
 
 中文说明见：[README.zh-CN.md](README.zh-CN.md)
 
+## Reference Hardware Architecture
+
+```mermaid
+flowchart LR
+  mic["INMP441 I2S Microphone"] --> esp["ESP32-S3 Firmware Node"]
+  esp -->|"UDP PCM contract packets"| hub["PC Audio Hub"]
+  esp <-->|"MQTT status / commands"| mqtt["MQTT Broker"]
+  setup["AP/STA Setup Page"] --> esp
+```
+
+This firmware implements the audio uplink node contract described in the repository root README. The PC hub depends on the UDP PCM packet format, `node_uuid`/`node_id` identity fields, and MQTT topic conventions, not on the ESP32-S3 chip itself.
+
 ## Firmware Flow
 
 ```mermaid

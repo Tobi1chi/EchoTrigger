@@ -3,7 +3,7 @@
 ## Device Identity
 
 - `node_uuid`
-  derived from the ESP32-S3 STA MAC and used as the stable backend and MQTT key
+  stable backend and MQTT key. The current `ESP32-S3` reference firmware derives it from the STA MAC; other hardware implementations only need to keep it stable for the same physical node
 - `node_id`
   human-readable label configured locally
 
@@ -17,7 +17,7 @@ MQTT topics use `mic/<node_uuid>/...`, not `mic/<node_id>/...`.
 - packet duration: `20 ms`
 - transport: `UDP`
 
-The packet format is defined in `Hardware/Mic-ESP32/main/audio_protocol.h` and includes:
+The reference packet format is defined in `Hardware/Mic-ESP32/main/audio_protocol.h`. Other hardware implementations need to send compatible fields:
 
 - `node_uuid`
 - `node_id`

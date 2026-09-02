@@ -1,10 +1,10 @@
 # 事件触发音频回放代理
 
-> 一个基于 `ESP32-S3`、UDP 音频上行、短时回放和 PC 侧 ASR 的本地优先感知系统。
+> 一个面向可替换音频节点的事件触发回放系统：通过稳定上行契约连接边缘采集、PC 侧缓存和 ASR。
 
 English version: [README.md](README.md)
 
-![ESP32-S3](https://img.shields.io/static/v1?label=MCU&message=ESP32-S3&color=1f6feb)
+![Node Contract](https://img.shields.io/static/v1?label=Node&message=Audio%20Uplink%20Contract&color=1f6feb)
 ![Firmware](https://img.shields.io/static/v1?label=Firmware&message=ESP-IDF&color=222222)
 ![ASR](https://img.shields.io/static/v1?label=ASR&message=Bailian%20Qwen%20ASR&color=0a7f5a)
 ![Audio](https://img.shields.io/static/v1?label=Audio&message=UDP%20PCM&color=b06d00)
@@ -12,28 +12,47 @@ English version: [README.md](README.md)
 
 ## 架构
 
+### 整体架构
+
 ```mermaid
 flowchart LR
-  mic["I2S 麦克风"] --> esp["ESP32-S3 节点"]
-  esp -->|"UDP PCM"| hub["PC Audio Hub"]
+  node["音频上行节点<br/>任意满足契约的硬件"] -->|"UDP PCM<br/>node_uuid / node_id / sample metadata"| hub["PC Audio Hub"]
+  mqtt["控制面<br/>MQTT-compatible topics"] <-->|"状态 / 命令"| node
   hub --> ring["滚动缓存"]
   ring --> jobs["异步 STT 任务"]
-  jobs --> asr["百炼 Qwen ASR Worker"]
-  mqtt["MQTT 控制面"] <-->|"状态 / 命令"| esp
+  jobs --> asr["ASR Worker<br/>默认百炼 Qwen ASR"]
   mcp["MCP 客户端"] --> hub
 ```
+
+这张图表达系统契约：软件侧只要求上游节点能按协议发送音频包并暴露基础状态/控制面，不要求节点一定是 `ESP32-S3`。
+
+### 参考硬件架构
+
+```mermaid
+flowchart LR
+  mic["I2S 麦克风<br/>INMP441"] --> capture["采集<br/>16 kHz / 16-bit / mono"]
+  capture --> packetizer["分包<br/>20 ms PCM frames"]
+  identity["ESP32-S3 STA MAC"] --> uuid["node_uuid"]
+  uuid --> packetizer
+  packetizer --> udp["UDP 上行<br/>契约包格式"]
+  cfg["运行配置<br/>Wi-Fi / MQTT / UDP / node_id"] --> udp
+  cfg --> mqtt_hw["MQTT 遥测与控制"]
+  setup["AP/STA 配置页面"] --> cfg
+```
+
+当前仓库里的 [Hardware/Mic-ESP32](Hardware/Mic-ESP32) 是上述契约的一种参考实现，而不是 PC hub 的唯一硬件前提。
 
 ## 仓库包含什么
 
 - [Hardware/Mic-ESP32](Hardware/Mic-ESP32)
-  麦克风节点的 ESP-IDF 固件。
+  基于 `ESP32-S3` 的参考麦克风节点固件。
 - [Software/pc_hub](Software/pc_hub)
   PC 侧 UDP 接收、滚动缓冲、MCP 服务和云端优先 ASR worker。
 
 当前系统能力：
 
-- 在 `ESP32-S3` 上采集 `16 kHz / 16-bit / mono PCM`
-- 通过 UDP 把音频发到 PC
+- 通过稳定的 UDP PCM 契约接入音频上行节点
+- 参考固件在 `ESP32-S3` 上采集 `16 kHz / 16-bit / mono PCM`
 - 通过 `node_uuid` 跟踪节点
 - 在 PC 上缓存最近一段时间的音频
 - 默认把 STT 任务异步提交给阿里云百炼 `qwen3-asr-flash`
@@ -103,7 +122,7 @@ legacy HTTP 仍然可用于兼容和手动调试，但它不是默认路径，�
 
 ## 备注
 
-- `node_uuid` 由 ESP32-S3 的 STA MAC 派生，是稳定的后端主键。
+- `node_uuid` 是稳定的后端主键；当前参考固件由 ESP32-S3 的 STA MAC 派生。
 - `node_id` 是本地可改的人类可读名称。
 - 查询使用 `pc_receive_time`，不是设备包头里的时间戳。
 - 当前项目以音频为主，视频接入仍是后续工作。

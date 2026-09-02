@@ -4,6 +4,18 @@
 
 English version: [README.md](README.md)
 
+## 参考硬件架构
+
+```mermaid
+flowchart LR
+  mic["INMP441 I2S 麦克风"] --> esp["ESP32-S3 固件节点"]
+  esp -->|"UDP PCM 契约包"| hub["PC Audio Hub"]
+  esp <-->|"MQTT 状态 / 命令"| mqtt["MQTT Broker"]
+  setup["AP/STA 配置页面"] --> esp
+```
+
+这个固件实现仓库根 README 中的音频上行节点契约。PC hub 依赖的是 UDP PCM 包格式、`node_uuid`/`node_id` 身份字段和 MQTT topic 约定，而不是 ESP32-S3 这个具体芯片。
+
 ## 固件流程
 
 ```mermaid
